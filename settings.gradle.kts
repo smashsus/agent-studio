@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "DeepSeek Agent"
+rootProject.name = "Agent Harness"
 
 include(":app")

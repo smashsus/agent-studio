@@ -1,37 +1,34 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Web
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,12 +40,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.authentication.AuthManager
 import com.example.authentication.AuthState
 import com.example.authentication.ProviderMode
 import com.example.ui.MainViewModel
 import com.example.ui.components.DeepSeekOfficialWebView
-import com.example.ui.theme.LocalAgentColors
+import com.example.ui.components.SwissBadge
+import com.example.ui.components.SwissOutlinedButton
+import com.example.ui.components.SwissPrimaryButton
+import com.example.ui.components.SwissSectionHeader
+import com.example.ui.components.SwissSurfaceCard
+import com.example.ui.components.SwissTopBar
+import com.example.ui.theme.LocalSwissTokens
+import com.example.ui.theme.SwissGeometry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,220 +63,81 @@ import java.util.Locale
 @Composable
 fun AuthScreen(
     viewModel: MainViewModel,
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val tokens = LocalSwissTokens.current
     val authState by viewModel.authState.collectAsStateWithLifecycle()
     val preferredMode by viewModel.preferredMode.collectAsStateWithLifecycle()
     val executionState by viewModel.executionState.collectAsStateWithLifecycle()
-    val agentColors = LocalAgentColors.current
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
 
-    var showEmbeddedWebView by rememberSaveable { mutableStateOf(false) }
+    var showWebBrowserModal by rememberSaveable { mutableStateOf(false) }
+    var webPortalUrl by rememberSaveable { mutableStateOf(AuthManager.DEEPSEEK_WEB_URL) }
     var apiKeyInput by rememberSaveable { mutableStateOf("") }
-    var customBaseUrl by rememberSaveable { mutableStateOf(viewModel.getSavedApiBaseUrl()) }
-    var useCustomCompatible by rememberSaveable { mutableStateOf(false) }
+    var baseUrlInput by rememberSaveable { mutableStateOf(viewModel.getSavedApiBaseUrl()) }
+    var modelIdInput by rememberSaveable { mutableStateOf(settings.modelId) }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(tokens.background)
     ) {
-        // Authentication State Banner
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                            Spacer(Modifier.width(8.dp))
-                            Text("DeepSeek Account & Auth State", style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
+        SwissTopBar(
+            title = "Account & Endpoints",
+            subtitle = "Provider-neutral connection hub",
+            onBack = onBack,
+            actions = {
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.size(SwissGeometry.minTouchTarget)
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = "Settings", tint = tokens.primaryText)
+                }
+            }
+        )
 
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(SwissGeometry.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(SwissGeometry.sectionSpacing)
+        ) {
+            // Current Connection State
+            item {
+                SwissSectionHeader(title = "Connection Status")
+                SwissSurfaceCard {
                     val (badgeText, badgeColor, detailText) = when (val s = authState) {
                         AuthState.NotAuthenticated -> Triple(
-                            "Not Authenticated",
-                            agentColors.warning,
-                            "Connect your DeepSeek account below via Official Web Session (Priority 1) or optional API fallback (Priority 2)."
+                            "Not Connected",
+                            tokens.warning,
+                            "Configure any OpenAI-compatible API endpoint with base URL below, or open an embedded web session."
                         )
                         is AuthState.Authenticating -> Triple(
-                            "Authenticating",
-                            agentColors.telemetry,
+                            "Connecting",
+                            tokens.primaryAccent,
                             s.message
                         )
                         is AuthState.Authenticated -> {
                             val expText = s.expiresAt?.let {
-                                " • Expires: ${SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(it))}"
-                            } ?: " • Persistent Keystore Credential"
+                                " · Expires ${SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(it))}"
+                            } ?: " · Keystore encrypted"
                             Triple(
-                                "Authenticated (${s.mode.displayName})",
-                                agentColors.success,
+                                "Connected",
+                                tokens.success,
                                 "${s.accountLabel}$expText"
                             )
                         }
                         is AuthState.SessionExpired -> Triple(
                             "Session Expired",
-                            agentColors.warning,
-                            "Session for ${s.lastAccountLabel} expired. Reauthenticate cleanly below."
+                            tokens.warning,
+                            "Session for ${s.lastAccountLabel} expired. Reauthenticate below."
                         )
                         is AuthState.AuthenticationFailed -> Triple(
-                            "Authentication Failed",
-                            agentColors.danger,
+                            "Connection Failed",
+                            tokens.error,
                             s.reason
                         )
-                    }
-
-                    Surface(
-                        color = badgeColor.copy(alpha = 0.14f),
-                        shape = MaterialTheme.shapes.small,
-                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = badgeText,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = badgeColor,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
-                    }
-                    Text(detailText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { viewModel.expireWebSessionForTestOrReauth() },
-                            modifier = Modifier.testTag("expire_session_button")
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Reauth / Expire")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                showEmbeddedWebView = false
-                                viewModel.logoutAll()
-                            },
-                            modifier = Modifier.testTag("logout_all_button")
-                        ) {
-                            Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Logout")
-                        }
-                    }
-                }
-            }
-        }
-
-        // Priority 1: Official DeepSeek Web Session
-        item {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (preferredMode == ProviderMode.WEB_SESSION)
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    else MaterialTheme.colorScheme.surfaceContainer
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (preferredMode == ProviderMode.WEB_SESSION) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outline
-                )
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            RadioButton(
-                                selected = preferredMode == ProviderMode.WEB_SESSION,
-                                onClick = { viewModel.selectProviderMode(ProviderMode.WEB_SESSION) }
-                            )
-                            Column {
-                                Text("Priority 1: Official DeepSeek Web Session", style = MaterialTheme.typography.titleSmall)
-                                Text("Uses your existing DeepSeek account via official chat.deepseek.com", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.small
-                    ) {
-                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.Top) {
-                            Icon(Icons.Default.Security, contentDescription = null, tint = agentColors.telemetry, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Transparency Note: DeepSeek does not currently provide a third-party OAuth flow that turns a consumer web login into programmatic API access. Your embedded session runs inside an isolated official WebView without capturing passwords or reverse-engineering private endpoints.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            viewModel.selectProviderMode(ProviderMode.WEB_SESSION)
-                            if (!showEmbeddedWebView) viewModel.beginWebAuthentication()
-                            showEmbeddedWebView = !showEmbeddedWebView
-                        },
-                        modifier = Modifier.fillMaxWidth().testTag("login_deepseek_web_button")
-                    ) {
-                        Icon(Icons.Default.Web, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (showEmbeddedWebView) "Hide DeepSeek Web Browser" else "Login with DeepSeek (Official Web)")
-                    }
-                }
-            }
-        }
-
-        // Embedded Official DeepSeek WebView
-        if (showEmbeddedWebView) {
-            item {
-                DeepSeekOfficialWebView(
-                    pendingBridgePrompt = executionState.pendingWebBridge?.preparedPrompt,
-                    onPageFinished = { url, title -> viewModel.onDeepSeekWebPageLoaded(url, title) },
-                    onConfirmConnected = { viewModel.confirmWebSessionConnected() },
-                    onCopyBridgePrompt = { prompt -> viewModel.copyToClipboard("DeepSeek Prompt", prompt) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(480.dp)
-                )
-            }
-        }
-
-        // Priority 2: Optional Official DeepSeek API / Compatible Endpoint
-        item {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (preferredMode != ProviderMode.WEB_SESSION)
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    else MaterialTheme.colorScheme.surfaceContainer
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (preferredMode != ProviderMode.WEB_SESSION) MaterialTheme.colorScheme.secondary
-                    else MaterialTheme.colorScheme.outline
-                )
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = preferredMode != ProviderMode.WEB_SESSION,
-                            onClick = {
-                                viewModel.selectProviderMode(
-                                    if (useCustomCompatible) ProviderMode.COMPATIBLE_API else ProviderMode.OFFICIAL_API
-                                )
-                            }
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Priority 2: Official DeepSeek API (Optional Fallback)", style = MaterialTheme.typography.titleSmall)
-                            Text("Enables fully automated multi-step tool loops when an API key is provided. Encrypted in Android Keystore.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     }
 
                     Row(
@@ -277,25 +145,106 @@ fun AuthScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Use Custom Compatible Endpoint", style = MaterialTheme.typography.bodySmall)
-                        Switch(
-                            checked = useCustomCompatible,
-                            onCheckedChange = {
-                                useCustomCompatible = it
-                                if (!it) customBaseUrl = "https://api.deepseek.com"
-                            }
+                        Text(
+                            text = if (preferredMode == ProviderMode.WEB_SESSION) "Web Session Mode" else "API Endpoint Mode",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = tokens.primaryText
                         )
+                        SwissBadge(text = badgeText, textColor = badgeColor)
                     }
 
-                    if (useCustomCompatible) {
-                        OutlinedTextField(
-                            value = customBaseUrl,
-                            onValueChange = { customBaseUrl = it },
-                            label = { Text("HTTPS Base URL (OpenAI-compatible)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                    Text(detailText, style = MaterialTheme.typography.bodySmall, color = tokens.secondaryText)
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SwissOutlinedButton(
+                            text = "Expire / Reauth",
+                            onClick = { viewModel.expireWebSessionForTestOrReauth() },
+                            icon = Icons.Default.Refresh,
+                            modifier = Modifier.weight(1f).testTag("expire_session_button")
+                        )
+                        SwissOutlinedButton(
+                            text = "Logout",
+                            onClick = {
+                                showWebBrowserModal = false
+                                viewModel.logoutAll()
+                            },
+                            icon = Icons.AutoMirrored.Filled.Logout,
+                            tint = tokens.error,
+                            modifier = Modifier.weight(1f).testTag("logout_all_button")
                         )
                     }
+                }
+            }
+
+            // Any Compatible API Base URL + Key Configuration
+            item {
+                SwissSectionHeader(title = "Compatible API Endpoint", trailingText = "Any HTTPS Base URL")
+                SwissSurfaceCard(
+                    borderColor = if (preferredMode != ProviderMode.WEB_SESSION) tokens.primaryAccent else tokens.border
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = preferredMode != ProviderMode.WEB_SESSION,
+                            onClick = { viewModel.selectProviderMode(ProviderMode.COMPATIBLE_API) }
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Use API Endpoint for Autonomous Tools",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = tokens.primaryText
+                            )
+                            Text(
+                                text = "Connect any OpenAI-compatible HTTPS endpoint and model ID. Credentials are encrypted via Android Keystore.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.secondaryText
+                            )
+                        }
+                    }
+
+                    // Provider-neutral quick-fill base URL presets
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            Triple("Custom", baseUrlInput, modelIdInput),
+                            Triple("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini"),
+                            Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
+                            Triple("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
+                            Triple("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile")
+                        ).forEach { (label, presetUrl, presetModel) ->
+                            FilterChip(
+                                selected = baseUrlInput.trimEnd('/') == presetUrl.trimEnd('/'),
+                                onClick = {
+                                    baseUrlInput = presetUrl
+                                    modelIdInput = presetModel
+                                },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = tokens.surface2,
+                                    selectedLabelColor = tokens.primaryAccent
+                                )
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = baseUrlInput,
+                        onValueChange = { baseUrlInput = it },
+                        label = { Text("HTTPS Base URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = modelIdInput,
+                        onValueChange = { modelIdInput = it },
+                        label = { Text("Model ID") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
                     OutlinedTextField(
                         value = apiKeyInput,
@@ -303,7 +252,7 @@ fun AuthScreen(
                         label = {
                             Text(
                                 if (viewModel.hasApiFallback()) "Key stored in Keystore (enter new key to replace)"
-                                else "Optional API Key (never exposed to model/tools)"
+                                else "API Key (encrypted locally, never exposed to tools)"
                             )
                         },
                         leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
@@ -312,20 +261,99 @@ fun AuthScreen(
                         modifier = Modifier.fillMaxWidth().testTag("optional_api_key_input")
                     )
 
-                    FilledTonalButton(
+                    SwissPrimaryButton(
+                        text = "Save & Connect Endpoint",
                         onClick = {
-                            val targetBase = if (useCustomCompatible) customBaseUrl else "https://api.deepseek.com"
-                            viewModel.saveApiFallback(apiKeyInput, targetBase, useCustomCompatible)
+                            val cleanBase = baseUrlInput.trim().ifEmpty { "https://api.openai.com/v1" }
+                            viewModel.setModelConfig(modelIdInput.trim().ifEmpty { "gpt-4o-mini" }, cleanBase)
+                            viewModel.saveApiFallback(
+                                apiKey = apiKeyInput,
+                                baseUrl = cleanBase,
+                                isCustom = !cleanBase.contains("api.deepseek.com", ignoreCase = true)
+                            )
                             apiKeyInput = ""
                         },
-                        enabled = apiKeyInput.isNotBlank(),
+                        enabled = apiKeyInput.isNotBlank() && baseUrlInput.isNotBlank(),
+                        icon = Icons.Default.Lock,
                         modifier = Modifier.fillMaxWidth().testTag("save_api_fallback_button")
-                    ) {
-                        Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Encrypt in Keystore & Verify")
-                    }
+                    )
                 }
+            }
+
+            // Embedded Web Session Card (Full-Screen Dialog for clean rendering)
+            item {
+                SwissSectionHeader(title = "Embedded Web Session", trailingText = "Isolated WebView")
+                SwissSurfaceCard(
+                    borderColor = if (preferredMode == ProviderMode.WEB_SESSION) tokens.primaryAccent else tokens.border
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = preferredMode == ProviderMode.WEB_SESSION,
+                            onClick = { viewModel.selectProviderMode(ProviderMode.WEB_SESSION) }
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Use Embedded Web Session",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = tokens.primaryText
+                            )
+                            Text(
+                                text = "Sign into a provider's web interface inside a full-height embedded browser without storing passwords.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.secondaryText
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = webPortalUrl,
+                        onValueChange = { webPortalUrl = it },
+                        label = { Text("Web Portal HTTPS URL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    SwissOutlinedButton(
+                        text = "Open In-App Browser",
+                        onClick = {
+                            viewModel.selectProviderMode(ProviderMode.WEB_SESSION)
+                            viewModel.beginWebAuthentication()
+                            showWebBrowserModal = true
+                        },
+                        icon = Icons.Default.Web,
+                        modifier = Modifier.fillMaxWidth().testTag("login_deepseek_web_button")
+                    )
+                }
+            }
+        }
+    }
+
+    if (showWebBrowserModal) {
+        Dialog(
+            onDismissRequest = { showWebBrowserModal = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp),
+                shape = RoundedCornerShape(SwissGeometry.radiusDialog),
+                color = tokens.surface1,
+                border = BorderStroke(SwissGeometry.borderWidth, tokens.border)
+            ) {
+                DeepSeekOfficialWebView(
+                    pendingBridgePrompt = executionState.pendingWebBridge?.preparedPrompt,
+                    initialUrl = webPortalUrl.trim().takeIf { it.startsWith("https://") }
+                        ?: AuthManager.DEEPSEEK_WEB_URL,
+                    onPageFinished = { url, title -> viewModel.onDeepSeekWebPageLoaded(url, title) },
+                    onConfirmConnected = {
+                        viewModel.confirmWebSessionConnected()
+                        showWebBrowserModal = false
+                    },
+                    onCopyBridgePrompt = { prompt -> viewModel.copyToClipboard("Agent Prompt", prompt) },
+                    onClose = { showWebBrowserModal = false },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }

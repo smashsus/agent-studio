@@ -1,6 +1,6 @@
 {
-  "name": "DeepSeek Agent",
-  "description": "Native Android autonomous AI agent harness with DeepSeek web session, optional API fallback, multi-step tool engine, three-layer Room memory, and Android integrations.",
+  "name": "Agent Harness",
+  "description": "Provider-neutral native Android autonomous AI agent harness with custom endpoint & web session support, on-device tools, three-layer Room memory, and Android integrations.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

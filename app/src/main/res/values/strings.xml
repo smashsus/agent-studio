@@ -1,9 +1,8 @@
 <resources>
-    <string name="app_name">DeepSeek Agent</string>
-    <string name="accessibility_service_description">Optional DeepSeek Agent UI assistant. Activated only with explicit user consent to read visible screen text or trigger assisted UI actions when requested.</string>
-    <string name="nav_workspace">Agent</string>
-    <string name="nav_auth">Account</string>
+    <string name="app_name">Agent Harness</string>
+    <string name="accessibility_service_description">Optional Agent Harness UI assistant. Activated only with explicit user consent to read visible screen text or trigger assisted UI actions when requested.</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_activity">Activity</string>
     <string name="nav_memory">Memory</string>
     <string name="nav_files">Files</string>
-    <string name="nav_settings">Settings</string>
 </resources>

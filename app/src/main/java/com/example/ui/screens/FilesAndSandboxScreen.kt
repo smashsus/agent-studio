@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,24 +17,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Html
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,20 +51,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.tools.WorkspaceFileInfo
 import com.example.ui.MainViewModel
+import com.example.ui.components.SwissDivider
+import com.example.ui.components.SwissEmptyState
+import com.example.ui.components.SwissOutlinedButton
+import com.example.ui.components.SwissPrimaryButton
+import com.example.ui.components.SwissSearchField
+import com.example.ui.components.SwissSectionHeader
+import com.example.ui.components.SwissSurfaceCard
+import com.example.ui.components.SwissTopBar
+import com.example.ui.theme.LocalSwissTokens
+import com.example.ui.theme.SwissGeometry
 
 @Composable
 fun FilesAndSandboxScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val tokens = LocalSwissTokens.current
     val files by viewModel.workspaceFiles.collectAsStateWithLifecycle()
     val jsOutput by viewModel.jsSandboxOutput.collectAsStateWithLifecycle()
     val filePreview by viewModel.filePreviewContent.collectAsStateWithLifecycle()
 
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var categoryFilter by rememberSaveable { mutableStateOf("all") }
     var jsCode by rememberSaveable {
         mutableStateOf("const primes = [2,3,5,7,11];\nprimes.reduce((a,b) => a + b, 0);")
     }
@@ -79,27 +98,109 @@ fun FilesAndSandboxScreen(
         viewModel.refreshWorkspaceFiles()
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    val filteredFiles = remember(files, searchQuery, categoryFilter) {
+        files.filter { file ->
+            val matchesCat = categoryFilter == "all" || file.category.equals(categoryFilter, ignoreCase = true)
+            val matchesQuery = searchQuery.isBlank() ||
+                file.name.contains(searchQuery, ignoreCase = true) ||
+                file.extension.contains(searchQuery, ignoreCase = true)
+            matchesCat && matchesQuery
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(tokens.background)
     ) {
-        // Sandboxed JavaScript Runner Card
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Code, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Sandboxed JavaScript Evaluator", style = MaterialTheme.typography.titleMedium)
+        SwissTopBar(
+            title = "Files",
+            subtitle = "${files.size} workspace artifacts",
+            actions = {
+                IconButton(
+                    onClick = { viewModel.refreshWorkspaceFiles() },
+                    modifier = Modifier.size(SwissGeometry.minTouchTarget)
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Files", tint = tokens.primaryText)
+                }
+            }
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(SwissGeometry.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                SwissSearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = "Search workspace files..."
+                )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("all" to "All", "reports" to "Reports", "code" to "Code", "notes" to "Notes", "downloads" to "Downloads").forEach { (key, label) ->
+                        FilterChip(
+                            selected = categoryFilter == key,
+                            onClick = { categoryFilter = key },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = tokens.surface2,
+                                selectedLabelColor = tokens.primaryAccent
+                            )
+                        )
                     }
+                }
+            }
+
+            item {
+                SwissSectionHeader(
+                    title = "Workspace Artifacts",
+                    trailingText = "${filteredFiles.size} files"
+                )
+            }
+
+            if (filteredFiles.isEmpty()) {
+                item {
+                    SwissEmptyState(
+                        icon = Icons.Default.FolderOpen,
+                        title = "No matching files",
+                        description = "Reports (.md, .pdf), notes, and generated HTML applications appear here."
+                    )
+                }
+            } else {
+                itemsIndexed(filteredFiles, key = { _, f -> f.absolutePath }) { idx, file ->
+                    CompactWorkspaceFileRow(
+                        file = file,
+                        onPreview = { viewModel.openWorkspaceFilePreview(file) },
+                        onExportSaf = {
+                            pendingExportPath = file.absolutePath
+                            exportLauncher.launch(file.name)
+                        },
+                        onShare = { viewModel.shareFile(file) },
+                        onDelete = { viewModel.deleteWorkspaceFile(file.absolutePath) }
+                    )
+                    if (idx < filteredFiles.lastIndex) {
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(8.dp))
+                SwissSectionHeader(title = "JavaScript Sandbox", trailingText = "Isolated WebView")
+                SwissSurfaceCard {
                     Text(
-                        text = "Runs inside an isolated WebView sandbox (network, file access, and shell commands blocked).",
+                        text = "Evaluate scripts inside an isolated sandbox with network, file access, and shell commands disabled.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = tokens.secondaryText
                     )
                     OutlinedTextField(
                         value = jsCode,
@@ -109,25 +210,23 @@ fun FilesAndSandboxScreen(
                         maxLines = 6,
                         modifier = Modifier.fillMaxWidth().testTag("js_sandbox_input")
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { viewModel.runJsSnippetInSandbox(jsCode) },
-                            modifier = Modifier.testTag("run_js_sandbox_button")
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Run in Sandbox")
-                        }
-                    }
+                    SwissPrimaryButton(
+                        text = "Run Script",
+                        onClick = { viewModel.runJsSnippetInSandbox(jsCode) },
+                        icon = Icons.Default.PlayArrow,
+                        modifier = Modifier.testTag("run_js_sandbox_button")
+                    )
                     jsOutput?.let { out ->
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = MaterialTheme.shapes.small,
+                            color = tokens.surface2,
+                            shape = RoundedCornerShape(SwissGeometry.radiusSmall),
+                            border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 text = out,
                                 style = MaterialTheme.typography.labelMedium,
+                                color = tokens.primaryText,
                                 modifier = Modifier.padding(10.dp)
                             )
                         }
@@ -135,125 +234,108 @@ fun FilesAndSandboxScreen(
                 }
             }
         }
-
-        // Workspace Files Header
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Agent Workspace Files (${files.size})", style = MaterialTheme.typography.titleMedium)
-                IconButton(onClick = { viewModel.refreshWorkspaceFiles() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Workspace Files")
-                }
-            }
-        }
-
-        if (files.isEmpty()) {
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                        Text("No Generated Files Yet", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "Reports (.md / .pdf), code files, and HTML mini-apps generated by DeepSeek Agent appear here organized by category.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        } else {
-            items(files, key = { it.absolutePath }) { file ->
-                WorkspaceFileCard(
-                    file = file,
-                    onPreview = { viewModel.openWorkspaceFilePreview(file) },
-                    onExportSaf = {
-                        pendingExportPath = file.absolutePath
-                        exportLauncher.launch(file.name)
-                    },
-                    onShare = { viewModel.shareFile(file) },
-                    onDelete = { viewModel.deleteWorkspaceFile(file.absolutePath) }
-                )
-            }
-        }
     }
 
     filePreview?.let { (title, content) ->
         AlertDialog(
             onDismissRequest = { viewModel.closeFilePreview() },
-            title = { Text(title) },
+            containerColor = tokens.surface1,
+            shape = RoundedCornerShape(SwissGeometry.radiusDialog),
+            title = { Text(title, style = MaterialTheme.typography.titleLarge, color = tokens.primaryText) },
             text = {
                 LazyColumn(modifier = Modifier.height(340.dp)) {
                     item {
-                        Text(content, style = MaterialTheme.typography.bodySmall)
+                        Text(content, style = MaterialTheme.typography.bodySmall, color = tokens.primaryText)
                     }
                 }
             },
             confirmButton = {
-                Button(onClick = { viewModel.copyToClipboard(title, content) }) {
-                    Text("Copy")
-                }
+                SwissPrimaryButton(
+                    text = "Copy",
+                    onClick = { viewModel.copyToClipboard(title, content) }
+                )
             },
             dismissButton = {
-                OutlinedButton(onClick = { viewModel.closeFilePreview() }) {
-                    Text("Close")
-                }
+                SwissOutlinedButton(
+                    text = "Close",
+                    onClick = { viewModel.closeFilePreview() }
+                )
             }
         )
     }
 }
 
 @Composable
-private fun WorkspaceFileCard(
+private fun CompactWorkspaceFileRow(
     file: WorkspaceFileInfo,
     onPreview: () -> Unit,
     onExportSaf: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+    val tokens = LocalSwissTokens.current
+    val icon = when (file.extension) {
+        "pdf" -> Icons.Default.PictureAsPdf
+        "html", "htm" -> Icons.Default.Html
+        "js", "json", "kt", "py" -> Icons.Default.Code
+        else -> Icons.Default.Description
+    }
+
+    Surface(
+        color = tokens.surface1,
+        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
+        border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = file.category.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Text(file.name, style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        text = "${file.sizeBytes} bytes • .${file.extension}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tokens.primaryAccent,
+                modifier = Modifier.size(22.dp)
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = tokens.primaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${file.category} · ${formatFileSize(file.sizeBytes)} · .${file.extension}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.secondaryText
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPreview, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Visibility, contentDescription = "Preview", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
                 }
-                Row {
-                    IconButton(onClick = onPreview) {
-                        Icon(Icons.Default.Visibility, contentDescription = "Inspect or Preview File")
-                    }
-                    IconButton(onClick = onExportSaf) {
-                        Icon(Icons.Default.Download, contentDescription = "Save to Device via SAF")
-                    }
-                    IconButton(onClick = onShare) {
-                        Icon(Icons.Default.Share, contentDescription = "Share File")
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete File")
-                    }
+                IconButton(onClick = onExportSaf, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Download, contentDescription = "Save via SAF", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onShare, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
                 }
             }
         }
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        else -> "${bytes / (1024 * 1024)} MB"
     }
 }

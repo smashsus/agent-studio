@@ -2,39 +2,32 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// DeepSlate Studio — Dark-First Cobalt & Cyan Tokens
-val ObsidianSlate = Color(0xFF0B101B)
-val ElevatedSlate = Color(0xFF121A2B)
-val TacticalCard = Color(0xFF182338)
-val TacticalCardHigh = Color(0xFF202E47)
-val CrispDivider = Color(0xFF25334D)
+// Swiss Minimalism + Editorial UI — Dark Theme Tokens
+val DarkBackground = Color(0xFF101216)
+val DarkSurface1 = Color(0xFF191D24)
+val DarkSurface2 = Color(0xFF222832)
+val DarkSurface3 = Color(0xFF292F3A)
+val DarkBorder = Color(0xFF303640)
+val DarkPrimaryText = Color(0xFFF1F3F6)
+val DarkSecondaryText = Color(0xFFA1A8B3)
+val DarkMutedText = Color(0xFF737C89)
+val DarkPrimaryAccent = Color(0xFF70D5E8)
+val DarkSecondaryAccent = Color(0xFFA99AF5)
+val DarkSuccess = Color(0xFF55C795)
+val DarkWarning = Color(0xFFE8B66C)
+val DarkError = Color(0xFFED7777)
 
-val ElectricCobalt = Color(0xFF2F81F7)
-val CobaltContainer = Color(0xFF173566)
-val CobaltOnContainer = Color(0xFFD8E7FF)
-
-val CyanTelemetry = Color(0xFF22D3EE)
-val CyanContainer = Color(0xFF0E3E4A)
-val CyanOnContainer = Color(0xFFBAF4FD)
-
-val EmeraldSignal = Color(0xFF10B981)
-val EmeraldContainer = Color(0xFF0B3B2D)
-val AmberCaution = Color(0xFFF59E0B)
-val AmberContainer = Color(0xFF422C08)
-val CrimsonHalt = Color(0xFFEF4444)
-val CrimsonContainer = Color(0xFF4A1519)
-
-val SlateInk = Color(0xFFE6EDF7)
-val SlateMutedInk = Color(0xFF94A3B8)
-
-// DeepSlate Studio — Light Mode Tokens
-val MineralWhite = Color(0xFFF6F8FC)
-val CardWhite = Color(0xFFFFFFFF)
-val SoftSlateSurface = Color(0xFFECF1F8)
-val LightDivider = Color(0xFFD6DFED)
-val NavyInk = Color(0xFF0F172A)
-val NavyMutedInk = Color(0xFF475569)
-val DeepCobaltLight = Color(0xFF1D4ED8)
-val CobaltLightContainer = Color(0xFFDBEAFE)
-val TealCyanLight = Color(0xFF0891B2)
-val CyanLightContainer = Color(0xFFCFFAFE)
+// Swiss Minimalism + Editorial UI — Light Theme Tokens
+val LightBackground = Color(0xFFF7F8FA)
+val LightSurface1 = Color(0xFFFFFFFF)
+val LightSurface2 = Color(0xFFF0F2F5)
+val LightSurface3 = Color(0xFFE9ECF1)
+val LightBorder = Color(0xFFE3E6EB)
+val LightPrimaryText = Color(0xFF171A20)
+val LightSecondaryText = Color(0xFF626B78)
+val LightMutedText = Color(0xFF8B929D)
+val LightPrimaryAccent = Color(0xFF087F99)
+val LightSecondaryAccent = Color(0xFF7665C5)
+val LightSuccess = Color(0xFF23845B)
+val LightWarning = Color(0xFFA66A19)
+val LightError = Color(0xFFC34444)

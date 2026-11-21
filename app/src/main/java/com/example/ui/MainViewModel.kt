@@ -260,15 +260,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         container.authManager.expireSessionForReauth()
     }
 
-    fun saveApiFallback(apiKey: String, baseUrl: String, isCustom: Boolean) {
+    fun saveApiFallback(apiKey: String, baseUrl: String, modelId: String, isCustom: Boolean) {
         viewModelScope.launch {
-            val res = container.authManager.saveAndVerifyApiFallback(apiKey, baseUrl, isCustom)
+            val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+            val cleanModel = modelId.trim().ifEmpty { settings.value.modelId.ifBlank { "gpt-4o-mini" } }
+            val res = container.authManager.saveAndVerifyApiFallback(apiKey, cleanBase, isCustom)
             if (res.isSuccess) {
+                val savedBase = res.getOrDefault(cleanBase)
                 container.settingsStore.setModelConfig(
-                    modelId = settings.value.modelId,
-                    customBaseUrl = baseUrl.ifBlank { "https://api.deepseek.com" }
+                    modelId = cleanModel,
+                    customBaseUrl = savedBase
                 )
-                _snackbarMessage.value = "Encrypted API fallback connected in Android Keystore."
+                _snackbarMessage.value = "Connected to $savedBase ($cleanModel)."
             } else {
                 _snackbarMessage.value = res.exceptionOrNull()?.message ?: "Authentication failed."
             }
@@ -434,8 +437,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setModelConfig(modelId: String, baseUrl: String) {
         viewModelScope.launch {
-            container.settingsStore.setModelConfig(modelId, baseUrl)
-            _snackbarMessage.value = "Model configuration updated."
+            val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+            val cleanModel = modelId.trim().ifEmpty { "gpt-4o-mini" }
+            container.settingsStore.setModelConfig(cleanModel, cleanBase)
+            container.authManager.syncApiBaseUrlIfConfigured(cleanBase)
+            _snackbarMessage.value = "Model configuration updated ($cleanModel)."
         }
     }
 

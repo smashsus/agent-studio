@@ -45,4 +45,70 @@ class ExampleUnitTest {
         assertTrue(registry.validateArguments("sample_tool", "{}").isFailure)
         assertTrue(registry.validateArguments("sample_tool", """{"query":"hello"}""").isSuccess)
     }
+
+    @Test
+    fun openAiCompatible_normalizesFasfasAndFullEndpointUrls() {
+        assertEquals(
+            "https://api.fasfas.ai/v1",
+            com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl("https://api.fasfas.ai/v1/")
+        )
+        assertEquals(
+            "https://api.fasfas.ai/v1",
+            com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl("https://api.fasfas.ai")
+        )
+        assertEquals(
+            "https://api.fasfas.ai/v1",
+            com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl("https://api.fasfas.ai/v1/chat/completions")
+        )
+        assertEquals(
+            "https://api.fasfas.ai/rp/v1",
+            com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl("https://api.fasfas.ai/rp/v1/")
+        )
+    }
+
+    @Test
+    fun openAiCompatible_parsesNullToolCallsAndObjectArguments() {
+        val textBody = """
+            {
+              "choices": [{
+                "message": {
+                  "role": "assistant",
+                  "content": "Hello from glm-5.3-flash!",
+                  "reasoning": "Checked context.",
+                  "tool_calls": null
+                }
+              }]
+            }
+        """.trimIndent()
+        val textResp = com.example.model.OpenAiCompatibleModelProvider.parseResponseBody(textBody)
+        assertTrue(textResp is com.example.model.ModelResponse.TextResponse)
+        val parsedText = textResp as com.example.model.ModelResponse.TextResponse
+        assertEquals("Hello from glm-5.3-flash!", parsedText.content)
+        assertEquals("Checked context.", parsedText.reasoningSummary)
+
+        val toolBody = """
+            {
+              "choices": [{
+                "message": {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                      "name": "web_search",
+                      "arguments": {"query": "fasfas api", "max_results": 3}
+                    }
+                  }]
+                }
+              }]
+            }
+        """.trimIndent()
+        val toolResp = com.example.model.OpenAiCompatibleModelProvider.parseResponseBody(toolBody)
+        assertTrue(toolResp is com.example.model.ModelResponse.ToolCallsResponse)
+        val parsedTool = toolResp as com.example.model.ModelResponse.ToolCallsResponse
+        assertEquals(1, parsedTool.calls.size)
+        assertEquals("web_search", parsedTool.calls.first().toolName)
+        assertTrue(parsedTool.calls.first().argumentsJson.contains("fasfas api"))
+    }
 }

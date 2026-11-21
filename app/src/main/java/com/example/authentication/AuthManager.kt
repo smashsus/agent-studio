@@ -131,11 +131,11 @@ class AuthManager(
         apiKey: String,
         baseUrl: String,
         isCustomCompatible: Boolean
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    ): Result<String> = withContext(Dispatchers.IO) {
         val mode = if (isCustomCompatible) ProviderMode.COMPATIBLE_API else ProviderMode.OFFICIAL_API
-        val trimmedKey = apiKey.trim()
-        val cleanBase = baseUrl.trim().trimEnd('/').ifEmpty { "https://api.deepseek.com" }
-        if (trimmedKey.isBlank()) {
+        val effectiveKey = apiKey.trim().ifBlank { vault.getSecret(VAULT_API_KEY).orEmpty() }
+        val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+        if (effectiveKey.isBlank()) {
             _authState.value = AuthState.AuthenticationFailed("API key cannot be empty.", mode)
             return@withContext Result.failure(IllegalArgumentException("API key is empty"))
         }
@@ -155,7 +155,9 @@ class AuthManager(
 
         val request = Request.Builder()
             .url("$cleanBase/models")
-            .header("Authorization", "Bearer $trimmedKey")
+            .header("Authorization", "Bearer $effectiveKey")
+            .header("Accept", "application/json")
+            .header("User-Agent", com.example.model.OpenAiCompatibleModelProvider.USER_AGENT)
             .get()
             .build()
 
@@ -163,8 +165,9 @@ class AuthManager(
         responseResult.fold(
             onSuccess = { resp ->
                 resp.use {
-                    if (it.isSuccessful || it.code == 404) {
-                        vault.putSecret(VAULT_API_KEY, trimmedKey)
+                    val bodySnippet = runCatching { it.body?.string().orEmpty() }.getOrDefault("")
+                    if (it.isSuccessful || it.code == 404 || it.code == 405) {
+                        vault.putSecret(VAULT_API_KEY, effectiveKey)
                         val now = System.currentTimeMillis()
                         prefs.edit()
                             .putString(KEY_API_BASE, cleanBase)
@@ -179,16 +182,17 @@ class AuthManager(
                             expiresAt = null,
                             grantsProgrammaticApi = true
                         )
-                        Result.success(Unit)
+                        Result.success(cleanBase)
                     } else if (it.code == 401 || it.code == 403) {
+                        val detail = com.example.model.OpenAiCompatibleModelProvider.extractErrorMessage(bodySnippet)
                         _authState.value = AuthState.AuthenticationFailed(
-                            "Endpoint rejected credentials (HTTP ${it.code}). Check your key and try again.",
+                            "Endpoint rejected credentials (HTTP ${it.code}): $detail",
                             mode
                         )
-                        Result.failure(SecurityException("HTTP ${it.code}"))
+                        Result.failure(SecurityException("HTTP ${it.code}: $detail"))
                     } else {
-                        // Still allow saving if server returned non-401 (some compatible endpoints lack /models)
-                        vault.putSecret(VAULT_API_KEY, trimmedKey)
+                        // Still allow saving if server returned non-401/403 (some compatible gateways handle /chat/completions without /models)
+                        vault.putSecret(VAULT_API_KEY, effectiveKey)
                         val now = System.currentTimeMillis()
                         prefs.edit()
                             .putString(KEY_API_BASE, cleanBase)
@@ -203,7 +207,7 @@ class AuthManager(
                             expiresAt = null,
                             grantsProgrammaticApi = true
                         )
-                        Result.success(Unit)
+                        Result.success(cleanBase)
                     }
                 }
             },
@@ -215,6 +219,16 @@ class AuthManager(
                 Result.failure(err)
             }
         )
+    }
+
+    fun syncApiBaseUrlIfConfigured(baseUrl: String) {
+        val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+        if (cleanBase.startsWith("https://")) {
+            prefs.edit().putString(KEY_API_BASE, cleanBase).apply()
+            if (_preferredMode.value != ProviderMode.WEB_SESSION) {
+                refreshSessionState()
+            }
+        }
     }
 
     /**

@@ -6,13 +6,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
@@ -23,29 +23,29 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Priority 2 / Custom Compatible ModelProvider using official OpenAI-compatible Chat Completions
- * (e.g. https://api.deepseek.com/chat/completions).
+ * OpenAI-compatible Chat Completions ModelProvider
+ * (e.g. https://api.fasfas.ai/v1/chat/completions, https://api.openai.com/v1/chat/completions).
  * Credentials are fetched internally from AuthManager/KeystoreVault strictly for the Authorization header.
  */
 class OpenAiCompatibleModelProvider(
     private val authManager: AuthManager
 ) : ModelProvider {
 
-    override val providerName: String = "Official DeepSeek / Compatible API"
+    override val providerName: String = "Compatible API Endpoint"
     private val activeCall = AtomicReference<Call?>(null)
-    private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun generateNextStep(request: ModelRequest): ModelResponse =
         withContext(Dispatchers.IO) {
             val apiKey = authManager.getApiKeyForModelTransport()
                 ?: return@withContext ModelResponse.ErrorResponse(
-                    "No API key configured in Android Keystore. Connect Priority 2 API fallback in Account tab or use DeepSeek Web Session.",
+                    "No API key configured in Android Keystore. Open Account & Endpoints to connect your API key.",
                     retryable = false
                 )
 
-            val baseUrl = request.settings.customBaseUrl.trim().trimEnd('/').ifEmpty {
+            val rawBase = request.settings.customBaseUrl.ifBlank {
                 authManager.getSavedApiBaseUrl()
             }
+            val baseUrl = normalizeBaseUrl(rawBase)
             if (!baseUrl.startsWith("https://")) {
                 return@withContext ModelResponse.ErrorResponse(
                     "Insecure base URL rejected; HTTPS is required.",
@@ -54,7 +54,7 @@ class OpenAiCompatibleModelProvider(
             }
 
             val payload = buildJsonObject {
-                put("model", request.settings.modelId)
+                put("model", request.settings.modelId.trim())
                 put("messages", buildMessagesArray(request.systemPrompt, request.messages))
                 if (request.toolsSchemaJson.isNotEmpty() && !request.settings.modelId.contains("reasoner", true)) {
                     put("tools", request.toolsSchemaJson)
@@ -73,6 +73,8 @@ class OpenAiCompatibleModelProvider(
                 .url("$baseUrl/chat/completions")
                 .header("Authorization", "Bearer $apiKey")
                 .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", USER_AGENT)
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
@@ -89,7 +91,7 @@ class OpenAiCompatibleModelProvider(
                             retryable = retryable
                         )
                     }
-                    parseChatCompletionResponse(bodyStr)
+                    parseResponseBody(bodyStr)
                 }
             } catch (e: Exception) {
                 val cancelled = call.isCanceled()
@@ -115,9 +117,18 @@ class OpenAiCompatibleModelProvider(
             messages.forEach { msg ->
                 add(buildJsonObject {
                     put("role", msg.role)
-                    put("content", msg.content)
-                    if (msg.role == "tool" && msg.toolCallId != null) {
-                        put("tool_call_id", msg.toolCallId)
+                    if (msg.role == "assistant" && !msg.toolCalls.isNullOrEmpty()) {
+                        if (msg.content.isNotBlank()) {
+                            put("content", msg.content)
+                        } else {
+                            put("content", JsonNull)
+                        }
+                    } else {
+                        put("content", msg.content)
+                    }
+                    if (msg.role == "tool") {
+                        msg.toolCallId?.let { put("tool_call_id", it) }
+                        msg.toolName?.let { put("name", it) }
                     }
                     if (msg.role == "assistant" && !msg.toolCalls.isNullOrEmpty()) {
                         put("tool_calls", buildJsonArray {
@@ -138,58 +149,126 @@ class OpenAiCompatibleModelProvider(
         }
     }
 
-    private fun parseChatCompletionResponse(body: String): ModelResponse {
-        return runCatching {
-            val root = json.parseToJsonElement(body).jsonObject
-            val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
-                ?: return ModelResponse.ErrorResponse("Model returned no choices.")
-            val message = choice["message"]?.jsonObject
-                ?: return ModelResponse.ErrorResponse("Model choice missing message.")
+    companion object {
+        const val USER_AGENT = "AgentHarness-Android/1.0"
+        private val json = Json { ignoreUnknownKeys = true }
 
-            val content = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val reasoning = message["reasoning_content"]?.jsonPrimitive?.contentOrNull
-            val rawToolCalls = message["tool_calls"]?.jsonArray
-
-            if (rawToolCalls != null && rawToolCalls.isNotEmpty()) {
-                val parsedCalls = rawToolCalls.mapIndexedNotNull { idx, elem ->
-                    val obj = elem.jsonObject
-                    val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: "call_$idx"
-                    val fn = obj["function"]?.jsonObject ?: return@mapIndexedNotNull null
-                    val name = fn["name"]?.jsonPrimitive?.contentOrNull ?: return@mapIndexedNotNull null
-                    val args = fn["arguments"]?.jsonPrimitive?.contentOrNull ?: "{}"
-                    ToolCallRequest(id = id, toolName = name, argumentsJson = args)
+        fun normalizeBaseUrl(rawUrl: String): String {
+            var url = rawUrl.trim().trimEnd('/')
+            if (url.isEmpty()) return "https://api.deepseek.com"
+            val suffixes = listOf("/chat/completions", "/responses", "/messages", "/models")
+            for (suffix in suffixes) {
+                if (url.endsWith(suffix, ignoreCase = true)) {
+                    url = url.dropLast(suffix.length).trimEnd('/')
                 }
-                if (parsedCalls.isNotEmpty()) {
+            }
+            if (url.equals("https://api.fasfas.ai", ignoreCase = true) ||
+                url.equals("https://api.openai.com", ignoreCase = true)
+            ) {
+                url = "$url/v1"
+            }
+            return url
+        }
+
+        internal fun parseResponseBody(body: String): ModelResponse {
+            return runCatching {
+                val root = json.parseToJsonElement(body) as? JsonObject
+                    ?: return ModelResponse.ErrorResponse("Model returned non-JSON response.")
+
+                val errorElem = root["error"]
+                if (errorElem != null && errorElem !is JsonNull) {
+                    val errText = extractErrorMessage(body)
+                    if (errText.isNotBlank()) {
+                        return ModelResponse.ErrorResponse("Model endpoint error: $errText")
+                    }
+                }
+
+                val choices = root["choices"] as? JsonArray
+                val choice = choices?.firstOrNull() as? JsonObject
+                    ?: return ModelResponse.ErrorResponse("Model returned no choices.")
+                val message = (choice["message"] as? JsonObject)
+                    ?: (choice["delta"] as? JsonObject)
+                    ?: return ModelResponse.ErrorResponse("Model choice missing message.")
+
+                val content = extractTextContent(message["content"])
+                val reasoning = extractTextContent(message["reasoning_content"])
+                    .ifBlank { extractTextContent(message["reasoning"]) }
+                    .ifBlank { extractTextContent(message["thinking"]) }
+                    .ifBlank { null }
+
+                val rawToolCalls = message["tool_calls"] as? JsonArray
+                if (!rawToolCalls.isNullOrEmpty()) {
+                    val parsedCalls = rawToolCalls.mapIndexedNotNull { idx, elem ->
+                        val obj = elem as? JsonObject ?: return@mapIndexedNotNull null
+                        val id = (obj["id"] as? JsonPrimitive)?.contentOrNull ?: "call_$idx"
+                        val fn = obj["function"] as? JsonObject ?: return@mapIndexedNotNull null
+                        val name = (fn["name"] as? JsonPrimitive)?.contentOrNull ?: return@mapIndexedNotNull null
+                        val args = when (val argsElem = fn["arguments"]) {
+                            is JsonPrimitive -> argsElem.contentOrNull ?: "{}"
+                            is JsonObject -> argsElem.toString()
+                            else -> "{}"
+                        }
+                        ToolCallRequest(id = id, toolName = name, argumentsJson = args)
+                    }
+                    if (parsedCalls.isNotEmpty()) {
+                        return ModelResponse.ToolCallsResponse(
+                            calls = parsedCalls,
+                            assistantThought = content.takeIf { it.isNotBlank() } ?: reasoning
+                        )
+                    }
+                }
+
+                // Fallback: check if model emitted JSON tool_call block inside content
+                val embeddedCalls = DeepSeekWebBridgeProvider.parseEmbeddedToolCalls(content)
+                if (embeddedCalls.isNotEmpty()) {
                     return ModelResponse.ToolCallsResponse(
-                        calls = parsedCalls,
-                        assistantThought = content.takeIf { it.isNotBlank() } ?: reasoning
+                        calls = embeddedCalls,
+                        assistantThought = reasoning
                     )
                 }
-            }
 
-            // Fallback: check if reasoning model emitted JSON tool_call block inside content
-            val embeddedCalls = DeepSeekWebBridgeProvider.parseEmbeddedToolCalls(content)
-            if (embeddedCalls.isNotEmpty()) {
-                return ModelResponse.ToolCallsResponse(
-                    calls = embeddedCalls,
-                    assistantThought = reasoning
+                ModelResponse.TextResponse(
+                    content = content.ifBlank { "(Model returned empty response.)" },
+                    reasoningSummary = reasoning
                 )
+            }.getOrElse { err ->
+                ModelResponse.ErrorResponse("Failed to parse model response: ${err.message}")
             }
-
-            ModelResponse.TextResponse(
-                content = content.ifBlank { "(Model returned empty response.)" },
-                reasoningSummary = reasoning
-            )
-        }.getOrElse { err ->
-            ModelResponse.ErrorResponse("Failed to parse model response: ${err.message}")
         }
-    }
 
-    private fun extractErrorMessage(body: String): String {
-        return runCatching {
-            val obj = json.parseToJsonElement(body).jsonObject
-            obj["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
-                ?: body.take(240)
-        }.getOrDefault(body.take(240))
+        private fun extractTextContent(elem: JsonElement?): String {
+            return when (elem) {
+                null, is JsonNull -> ""
+                is JsonPrimitive -> elem.contentOrNull.orEmpty()
+                is JsonArray -> elem.mapNotNull { item ->
+                    when (item) {
+                        is JsonPrimitive -> item.contentOrNull
+                        is JsonObject -> (item["text"] as? JsonPrimitive)?.contentOrNull
+                            ?: (item["content"] as? JsonPrimitive)?.contentOrNull
+                        else -> null
+                    }
+                }.joinToString("\n")
+                is JsonObject -> (elem["text"] as? JsonPrimitive)?.contentOrNull
+                    ?: (elem["content"] as? JsonPrimitive)?.contentOrNull
+                    ?: ""
+            }
+        }
+
+        internal fun extractErrorMessage(body: String): String {
+            val trimmed = body.trim()
+            if (trimmed.isEmpty()) return "Empty response body"
+            return runCatching {
+                val obj = json.parseToJsonElement(trimmed) as? JsonObject ?: return trimmed.take(240)
+                when (val err = obj["error"]) {
+                    is JsonObject -> (err["message"] as? JsonPrimitive)?.contentOrNull
+                        ?: (err["error"] as? JsonPrimitive)?.contentOrNull
+                        ?: err.toString().take(240)
+                    is JsonPrimitive -> err.contentOrNull ?: trimmed.take(240)
+                    else -> (obj["message"] as? JsonPrimitive)?.contentOrNull
+                        ?: (obj["detail"] as? JsonPrimitive)?.contentOrNull
+                        ?: trimmed.take(240)
+                }
+            }.getOrDefault(trimmed.take(240))
+        }
     }
 }

@@ -31,6 +31,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,6 +79,14 @@ fun AuthScreen(
     var apiKeyInput by rememberSaveable { mutableStateOf("") }
     var baseUrlInput by rememberSaveable { mutableStateOf(viewModel.getSavedApiBaseUrl()) }
     var modelIdInput by rememberSaveable { mutableStateOf(settings.modelId) }
+    var hasLocalEdits by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(settings.customBaseUrl, settings.modelId) {
+        if (!hasLocalEdits) {
+            if (settings.customBaseUrl.isNotBlank()) baseUrlInput = settings.customBaseUrl
+            if (settings.modelId.isNotBlank()) modelIdInput = settings.modelId
+        }
+    }
 
     Column(
         modifier = modifier
@@ -154,6 +163,13 @@ fun AuthScreen(
                     }
 
                     Text(detailText, style = MaterialTheme.typography.bodySmall, color = tokens.secondaryText)
+                    if (preferredMode != ProviderMode.WEB_SESSION) {
+                        Text(
+                            text = "Active endpoint: ${settings.customBaseUrl} · Model: ${settings.modelId}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.primaryAccent
+                        )
+                    }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SwissOutlinedButton(
@@ -209,15 +225,19 @@ fun AuthScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(
-                            Triple("Custom", baseUrlInput, modelIdInput),
+                            Triple("Fasfas AI", "https://api.fasfas.ai/v1", "glm-5.3-flash"),
+                            Triple("Fasfas RP", "https://api.fasfas.ai/rp/v1", "glm-5.3-flash"),
                             Triple("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini"),
                             Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
                             Triple("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
-                            Triple("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile")
+                            Triple("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
+                            Triple("Custom", baseUrlInput, modelIdInput)
                         ).forEach { (label, presetUrl, presetModel) ->
                             FilterChip(
-                                selected = baseUrlInput.trimEnd('/') == presetUrl.trimEnd('/'),
+                                selected = label != "Custom" &&
+                                    baseUrlInput.trimEnd('/') == presetUrl.trimEnd('/'),
                                 onClick = {
+                                    hasLocalEdits = true
                                     baseUrlInput = presetUrl
                                     modelIdInput = presetModel
                                 },
@@ -232,16 +252,22 @@ fun AuthScreen(
 
                     OutlinedTextField(
                         value = baseUrlInput,
-                        onValueChange = { baseUrlInput = it },
-                        label = { Text("HTTPS Base URL") },
+                        onValueChange = {
+                            hasLocalEdits = true
+                            baseUrlInput = it
+                        },
+                        label = { Text("HTTPS Base URL (e.g. https://api.fasfas.ai/v1)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     OutlinedTextField(
                         value = modelIdInput,
-                        onValueChange = { modelIdInput = it },
-                        label = { Text("Model ID") },
+                        onValueChange = {
+                            hasLocalEdits = true
+                            modelIdInput = it
+                        },
+                        label = { Text("Model ID (e.g. glm-5.3-flash)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -251,8 +277,8 @@ fun AuthScreen(
                         onValueChange = { apiKeyInput = it },
                         label = {
                             Text(
-                                if (viewModel.hasApiFallback()) "Key stored in Keystore (enter new key to replace)"
-                                else "API Key (encrypted locally, never exposed to tools)"
+                                if (viewModel.hasApiFallback()) "API Key saved in Keystore (leave blank to keep, or enter new)"
+                                else "API Key (Bearer token, encrypted locally)"
                             )
                         },
                         leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
@@ -261,19 +287,28 @@ fun AuthScreen(
                         modifier = Modifier.fillMaxWidth().testTag("optional_api_key_input")
                     )
 
+                    val hasStoredKey = viewModel.hasApiFallback()
+                    val buttonText = if (apiKeyInput.isBlank() && hasStoredKey) {
+                        "Update Endpoint & Model"
+                    } else {
+                        "Save & Connect Endpoint"
+                    }
+
                     SwissPrimaryButton(
-                        text = "Save & Connect Endpoint",
+                        text = buttonText,
                         onClick = {
-                            val cleanBase = baseUrlInput.trim().ifEmpty { "https://api.openai.com/v1" }
-                            viewModel.setModelConfig(modelIdInput.trim().ifEmpty { "gpt-4o-mini" }, cleanBase)
+                            val cleanBase = baseUrlInput.trim().ifEmpty { "https://api.fasfas.ai/v1" }
+                            val cleanModel = modelIdInput.trim().ifEmpty { "glm-5.3-flash" }
+                            hasLocalEdits = false
                             viewModel.saveApiFallback(
                                 apiKey = apiKeyInput,
                                 baseUrl = cleanBase,
+                                modelId = cleanModel,
                                 isCustom = !cleanBase.contains("api.deepseek.com", ignoreCase = true)
                             )
                             apiKeyInput = ""
                         },
-                        enabled = apiKeyInput.isNotBlank() && baseUrlInput.isNotBlank(),
+                        enabled = (apiKeyInput.isNotBlank() || hasStoredKey) && baseUrlInput.isNotBlank(),
                         icon = Icons.Default.Lock,
                         modifier = Modifier.fillMaxWidth().testTag("save_api_fallback_button")
                     )

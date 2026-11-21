@@ -471,9 +471,10 @@ class AgentController(
     private suspend fun buildSystemPrompt(settings: AgentSettings): String {
         val memoryBlock = memoryManager.buildSystemMemoryContext(settings.longTermMemoryEnabled)
         return buildString {
-            appendLine("You are DeepSeek Agent, a native Android autonomous AI harness.")
+            appendLine("You are an autonomous native Android AI agent harness.")
             appendLine("Decompose multi-step tasks cleanly, invoke validated tools when needed, verify results, and produce concise, accurate outputs.")
-            appendLine("Security rule: Never request or emit credentials, and never attempt unrestricted shell commands.")
+            appendLine("You have local sandboxed Android shell access via the `run_shell` tool (/system/bin/sh inside AgentWorkspace), alongside file, web research, JavaScript, and Android system tools.")
+            appendLine("Security rule: Never request, read, or emit user credentials, API keys, or Keystore/shared_prefs data.")
             if (memoryBlock.isNotBlank()) {
                 appendLine()
                 appendLine(memoryBlock)

@@ -75,12 +75,16 @@ fun FilesAndSandboxScreen(
     val tokens = LocalSwissTokens.current
     val files by viewModel.workspaceFiles.collectAsStateWithLifecycle()
     val jsOutput by viewModel.jsSandboxOutput.collectAsStateWithLifecycle()
+    val shellOutput by viewModel.shellSandboxOutput.collectAsStateWithLifecycle()
     val filePreview by viewModel.filePreviewContent.collectAsStateWithLifecycle()
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var categoryFilter by rememberSaveable { mutableStateOf("all") }
     var jsCode by rememberSaveable {
         mutableStateOf("const primes = [2,3,5,7,11];\nprimes.reduce((a,b) => a + b, 0);")
+    }
+    var shellCommand by rememberSaveable {
+        mutableStateOf("pwd && ls -la")
     }
     var pendingExportPath by remember { mutableStateOf<String?>(null) }
 
@@ -217,6 +221,48 @@ fun FilesAndSandboxScreen(
                         modifier = Modifier.testTag("run_js_sandbox_button")
                     )
                     jsOutput?.let { out ->
+                        Surface(
+                            color = tokens.surface2,
+                            shape = RoundedCornerShape(SwissGeometry.radiusSmall),
+                            border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = out,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = tokens.primaryText,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(8.dp))
+                SwissSectionHeader(title = "Shell Console", trailingText = "/system/bin/sh")
+                SwissSurfaceCard {
+                    Text(
+                        text = "Run POSIX/Toybox shell commands inside the app sandbox (working directory: AgentWorkspace).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.secondaryText
+                    )
+                    OutlinedTextField(
+                        value = shellCommand,
+                        onValueChange = { shellCommand = it },
+                        textStyle = MaterialTheme.typography.labelMedium,
+                        minLines = 2,
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth().testTag("shell_sandbox_input")
+                    )
+                    SwissPrimaryButton(
+                        text = "Run Shell Command",
+                        onClick = { viewModel.runShellInSandbox(shellCommand) },
+                        enabled = shellCommand.isNotBlank(),
+                        icon = Icons.Default.PlayArrow,
+                        modifier = Modifier.testTag("run_shell_sandbox_button")
+                    )
+                    shellOutput?.let { out ->
                         Surface(
                             color = tokens.surface2,
                             shape = RoundedCornerShape(SwissGeometry.radiusSmall),

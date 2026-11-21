@@ -29,6 +29,7 @@ import com.example.tools.OpenAppTool
 import com.example.tools.OpenUrlTool
 import com.example.tools.ReadDocumentTool
 import com.example.tools.RunJavaScriptTool
+import com.example.tools.RunShellTool
 import com.example.tools.SaveMemoryTool
 import com.example.tools.ShareContentTool
 import com.example.tools.ToolExecutor
@@ -61,6 +62,7 @@ class AppContainer(context: Context) {
             CreateFileTool(fileManager),
             ListWorkspaceFilesTool(fileManager),
             RunJavaScriptTool(appContext),
+            RunShellTool(appContext, fileManager),
             GenerateHtmlAppTool(fileManager),
             OpenUrlTool(appContext, permissionManager),
             OpenAppTool(appContext),

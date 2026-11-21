@@ -114,6 +114,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _jsSandboxOutput = MutableStateFlow<String?>(null)
     val jsSandboxOutput: StateFlow<String?> = _jsSandboxOutput.asStateFlow()
 
+    private val _shellSandboxOutput = MutableStateFlow<String?>(null)
+    val shellSandboxOutput: StateFlow<String?> = _shellSandboxOutput.asStateFlow()
+
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
@@ -409,6 +412,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 settings.value
             ) ?: ToolResult(false, "", error = "JS tool missing.")
             _jsSandboxOutput.value = if (result.success) result.output else "Error: ${result.error}"
+        }
+    }
+
+    fun runShellInSandbox(command: String) {
+        viewModelScope.launch {
+            _shellSandboxOutput.value = "Executing via /system/bin/sh..."
+            val tool = container.toolRegistry.getTool("run_shell")
+            val result: ToolResult = tool?.execute(
+                buildJsonObject { put("command", command) },
+                settings.value
+            ) ?: ToolResult(false, "", error = "Shell tool missing.")
+            _shellSandboxOutput.value = if (result.success) result.output else (result.error ?: "Shell command failed.")
+            refreshWorkspaceFiles()
         }
     }
 

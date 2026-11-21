@@ -181,6 +181,20 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
+        // Shell command
+        val shBlock = Regex("""```(?:sh|bash|shell)\s*([\s\S]*?)```""", RegexOption.IGNORE_CASE).find(prompt)
+        val explicitShell = Regex("""^(?:run\s+shell|shell)\s*:\s*(.+)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(prompt.trim())
+        val shellCmd = shBlock?.groupValues?.get(1)?.trim() ?: explicitShell?.groupValues?.get(1)?.trim()
+        if (!shellCmd.isNullOrBlank()) {
+            calls.add(
+                ToolCallRequest(
+                    id = "local_shell_1",
+                    toolName = "run_shell",
+                    argumentsJson = buildJsonObject { put("command", shellCmd) }.toString()
+                )
+            )
+        }
+
         // Notification / reminder
         if (lower.contains("remind") || lower.contains("notify") || lower.contains("notification")) {
             calls.add(

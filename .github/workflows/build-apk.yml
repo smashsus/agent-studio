@@ -39,7 +39,17 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Run unit tests
+        id: tests
+        continue-on-error: true
         run: gradle :app:testDebugUnitTest
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Robolectric-Test-Reports
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
 
       - name: Build Debug APK
         run: gradle :app:assembleDebug

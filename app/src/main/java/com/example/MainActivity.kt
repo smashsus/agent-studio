@@ -10,7 +10,6 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.DisposableEffect
@@ -26,7 +25,6 @@ import com.example.ui.MainViewModel
 import com.example.ui.components.SplashScreenOverlay
 import com.example.ui.navigation.AgentStudioAppRoot
 import com.example.ui.theme.AgentStudioTheme
-import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -46,24 +44,11 @@ class MainActivity : ComponentActivity() {
             val preferredMode by viewModel.preferredMode.collectAsStateWithLifecycle()
             var showSplash by rememberSaveable { mutableStateOf(true) }
 
-            val useDark = when (settings.themeMode) {
-                ThemeMode.DARK -> true
-                ThemeMode.LIGHT -> false
-                ThemeMode.SYSTEM -> isSystemInDarkTheme()
-            }
-
-            DisposableEffect(useDark) {
+            // Light-only gentle themes: always keep status/navigation bars light.
+            DisposableEffect(settings.themeMode) {
                 enableEdgeToEdge(
-                    statusBarStyle = if (useDark) {
-                        SystemBarStyle.dark(AndroidColor.TRANSPARENT)
-                    } else {
-                        SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
-                    },
-                    navigationBarStyle = if (useDark) {
-                        SystemBarStyle.dark(AndroidColor.TRANSPARENT)
-                    } else {
-                        SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
-                    }
+                    statusBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+                    navigationBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
                 )
                 onDispose {}
             }

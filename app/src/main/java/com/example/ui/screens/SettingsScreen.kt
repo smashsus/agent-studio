@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,9 +18,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -39,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -47,6 +51,7 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.Bell
 import com.adamglin.phosphoricons.regular.Brain
+import com.adamglin.phosphoricons.regular.ChartBar
 import com.adamglin.phosphoricons.regular.Gauge
 import com.adamglin.phosphoricons.regular.HandTap
 import com.adamglin.phosphoricons.regular.Palette
@@ -63,6 +68,7 @@ import com.example.ui.components.SwissSectionHeader
 import com.example.ui.components.SwissSettingRow
 import com.example.ui.components.SwissSurfaceCard
 import com.example.ui.components.SwissTopBar
+import com.example.ui.components.TokenUsageSheet
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
 import com.example.ui.theme.ThemeMode
@@ -77,6 +83,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val tokens = LocalSwissTokens.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val tokenUsage by viewModel.tokenUsage.collectAsStateWithLifecycle()
 
     var modelIdInput by remember(settings.modelId) { mutableStateOf(settings.modelId) }
     var baseUrlInput by remember(settings.customBaseUrl) { mutableStateOf(settings.customBaseUrl) }
@@ -87,6 +94,7 @@ fun SettingsScreen(
     var timeoutSlider by remember(settings.timeoutSeconds) { mutableFloatStateOf(settings.timeoutSeconds.toFloat()) }
 
     var showClearDataDialog by rememberSaveable { mutableStateOf(false) }
+    var showTokenUsageSheet by rememberSaveable { mutableStateOf(false) }
     var notifGranted by remember { mutableStateOf(viewModel.hasNotificationPermission()) }
 
     val notifLauncher = rememberLauncherForActivityResult(
@@ -343,8 +351,23 @@ fun SettingsScreen(
                     )
                     SwissDivider()
                     SwissSettingRow(
+                        icon = PhosphorIcons.Regular.ChartBar,
+                        title = "Token Usage & Estimates",
+                        description = "Per-provider and per-model input/output & thinking breakdown",
+                        currentValue = "${tokenUsage.overall.totalTokens} total tokens",
+                        onClick = { showTokenUsageSheet = true },
+                        trailing = {
+                            SwissOutlinedButton(
+                                text = "View",
+                                onClick = { showTokenUsageSheet = true }
+                            )
+                        }
+                    )
+                    SwissDivider()
+                    SwissSettingRow(
                         icon = PhosphorIcons.Regular.Palette,
-                        title = "Theme",
+                        title = "Light Theme Palette",
+                        description = "Gentle low-saturation light themes (Pure White default)",
                         currentValue = settings.themeMode.label
                     )
                     Row(
@@ -359,6 +382,14 @@ fun SettingsScreen(
                             FilterChip(
                                 selected = selected,
                                 onClick = { viewModel.setThemeMode(mode) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(CircleShape)
+                                            .background(mode.swatchColor)
+                                    )
+                                },
                                 label = { Text(mode.label, style = MaterialTheme.typography.labelSmall) },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = FilterChipDefaults.filterChipColors(
@@ -451,6 +482,14 @@ fun SettingsScreen(
             dismissButton = {
                 SwissOutlinedButton(text = "Cancel", onClick = { showClearDataDialog = false })
             }
+        )
+    }
+
+    if (showTokenUsageSheet) {
+        TokenUsageSheet(
+            snapshot = tokenUsage,
+            onDismiss = { showTokenUsageSheet = false },
+            onReset = { viewModel.resetTokenUsage() }
         )
     }
 }

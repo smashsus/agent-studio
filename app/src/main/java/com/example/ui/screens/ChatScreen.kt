@@ -84,6 +84,7 @@ import com.example.ui.components.ChatHistorySheet
 import com.example.ui.components.GeminiChatInputArea
 import com.example.ui.components.LiveExecutionProgressCard
 import com.example.ui.components.ModelSelectorSheet
+import com.example.ui.components.SwarmConfigSheet
 import com.example.ui.components.SwissDivider
 import com.example.ui.components.SystemNoticeRow
 import com.example.ui.components.ToolExecutionRow
@@ -116,11 +117,13 @@ fun ChatScreen(
     val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
     val agentProfiles by viewModel.agentProfiles.collectAsStateWithLifecycle()
     val activeAgentId by viewModel.activeAgentId.collectAsStateWithLifecycle()
+    val swarmConfig by viewModel.swarmConfig.collectAsStateWithLifecycle()
 
     var inputText by rememberSaveable(initialDraft) { mutableStateOf(initialDraft) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showAgentSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
+    var showSwarmSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -201,10 +204,13 @@ fun ChatScreen(
             agentHandle = activeAgent?.handle ?: "@build",
             runtimeLabel = runtimeLabel,
             modelMissing = preferredMode != ProviderMode.WEB_SESSION && effectiveModelId.isBlank(),
+            swarmEnabled = swarmConfig.enabled,
+            swarmAgentCount = swarmConfig.members.size,
             onBack = onBack,
             onOpenHistory = { showHistorySheet = true },
             onOpenAgents = { showAgentSheet = true },
             onOpenModels = { showModelSheet = true },
+            onOpenSwarm = { showSwarmSheet = true },
             onNewThread = { viewModel.createNewConversation() }
         )
 
@@ -352,10 +358,10 @@ fun ChatScreen(
         GeminiChatInputArea(
             inputText = inputText,
             onInputChange = { inputText = it },
-            placeholder = if (preferredMode == ProviderMode.WEB_SESSION) {
-                "Ask Web Session..."
-            } else {
-                "Ask ${effectiveModelId.ifBlank { activeAgent?.name ?: "Agent" }}..."
+            placeholder = when {
+                preferredMode == ProviderMode.WEB_SESSION -> "Ask Web Session..."
+                swarmConfig.enabled -> "Ask ${swarmConfig.members.size}-agent Swarm..."
+                else -> "Ask ${effectiveModelId.ifBlank { activeAgent?.name ?: "Agent" }}..."
             },
             isRunning = executionState.isRunning,
             pendingAttachment = pendingAttachment,
@@ -409,10 +415,11 @@ fun ChatScreen(
             agents = agentProfiles,
             activeAgentId = activeAgentId,
             allTools = viewModel.toolDefinitions,
+            providers = savedProviders,
             onDismiss = { showAgentSheet = false },
             onSelectAgent = { id -> viewModel.selectAgent(id) },
             onInstallCatalogAgent = { id -> viewModel.installCatalogAgent(id, activate = true) },
-            onSaveAgent = { existingId, name, handle, desc, prompt, modelId, tools, disableAll ->
+            onSaveAgent = { existingId, name, handle, desc, prompt, modelId, provId, tools, disableAll ->
                 viewModel.saveOrUpdateAgent(
                     existingId = existingId,
                     name = name,
@@ -422,7 +429,8 @@ fun ChatScreen(
                     preferredModelId = modelId,
                     allowedTools = tools,
                     disableAllTools = disableAll,
-                    activate = true
+                    activate = true,
+                    preferredProviderId = provId
                 )
             },
             onInstallFromSpec = { raw -> viewModel.installAgentFromSpec(raw) },
@@ -444,6 +452,26 @@ fun ChatScreen(
             onOpenEndpoints = onNavigateToAuth
         )
     }
+
+    if (showSwarmSheet) {
+        SwarmConfigSheet(
+            swarmConfig = swarmConfig,
+            agents = agentProfiles,
+            providers = savedProviders,
+            onDismiss = { showSwarmSheet = false },
+            onSetEnabled = { viewModel.setSwarmEnabled(it) },
+            onSetAgentCount = { viewModel.setSwarmAgentCount(it) },
+            onSetCritiqueRounds = { viewModel.setSwarmCritiqueRounds(it) },
+            onAddMember = { agentId, provId, modelOv, roleNote ->
+                viewModel.addSwarmMember(agentId, provId, modelOv, roleNote)
+            },
+            onUpdateMember = { slotId, agentId, provId, modelOv, roleNote ->
+                viewModel.updateSwarmMember(slotId, agentId, provId, modelOv, roleNote)
+            },
+            onRemoveMember = { viewModel.removeSwarmMember(it) },
+            onResetDefaults = { viewModel.resetSwarmDefaults() }
+        )
+    }
 }
 
 @Composable
@@ -452,10 +480,13 @@ private fun ChatTopBar(
     agentHandle: String,
     runtimeLabel: String,
     modelMissing: Boolean,
+    swarmEnabled: Boolean,
+    swarmAgentCount: Int,
     onBack: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenAgents: () -> Unit,
     onOpenModels: () -> Unit,
+    onOpenSwarm: () -> Unit,
     onNewThread: () -> Unit
 ) {
     val tokens = LocalSwissTokens.current
@@ -575,6 +606,24 @@ private fun ChatTopBar(
                                 color = if (modelMissing) tokens.warning else tokens.primaryAccent,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Surface(
+                            color = if (swarmEnabled) tokens.success.copy(alpha = 0.14f) else tokens.surface2,
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(onClick = onOpenSwarm)
+                                .testTag("chat_swarm_picker_button")
+                        ) {
+                            Text(
+                                text = if (swarmEnabled) "Swarm x$swarmAgentCount" else "Swarm",
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                                fontWeight = if (swarmEnabled) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (swarmEnabled) tokens.success else tokens.secondaryText,
+                                maxLines = 1,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }

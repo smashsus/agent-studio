@@ -78,6 +78,7 @@ fun AgentManagerSheet(
     agents: List<AgentProfile>,
     activeAgentId: String,
     allTools: List<ToolDefinition>,
+    providers: List<SavedProviderProfile> = emptyList(),
     onDismiss: () -> Unit,
     onSelectAgent: (String) -> Unit,
     onInstallCatalogAgent: (String) -> Unit,
@@ -88,6 +89,7 @@ fun AgentManagerSheet(
         description: String,
         systemPrompt: String,
         preferredModelId: String,
+        preferredProviderId: String,
         allowedTools: List<String>,
         disableAllTools: Boolean
     ) -> Unit,
@@ -225,12 +227,13 @@ fun AgentManagerSheet(
         AgentEditorDialog(
             initial = editingAgent,
             allTools = allTools,
+            providers = providers,
             onDismiss = {
                 showCreateAgentDialog = false
                 editingAgent = null
             },
-            onSave = { existingId, name, handle, desc, prompt, modelId, tools, disableAll ->
-                onSaveAgent(existingId, name, handle, desc, prompt, modelId, tools, disableAll)
+            onSave = { existingId, name, handle, desc, prompt, modelId, provId, tools, disableAll ->
+                onSaveAgent(existingId, name, handle, desc, prompt, modelId, provId, tools, disableAll)
                 showCreateAgentDialog = false
                 editingAgent = null
             }
@@ -359,6 +362,7 @@ private fun AgentProfileCard(
 private fun AgentEditorDialog(
     initial: AgentProfile?,
     allTools: List<ToolDefinition>,
+    providers: List<SavedProviderProfile>,
     onDismiss: () -> Unit,
     onSave: (
         existingId: String?,
@@ -367,6 +371,7 @@ private fun AgentEditorDialog(
         description: String,
         systemPrompt: String,
         preferredModelId: String,
+        preferredProviderId: String,
         allowedTools: List<String>,
         disableAllTools: Boolean
     ) -> Unit
@@ -376,6 +381,7 @@ private fun AgentEditorDialog(
     var handle by rememberSaveable { mutableStateOf(initial?.handle.orEmpty()) }
     var description by rememberSaveable { mutableStateOf(initial?.description.orEmpty()) }
     var systemPrompt by rememberSaveable { mutableStateOf(initial?.systemPrompt.orEmpty()) }
+    var preferredProviderId by rememberSaveable { mutableStateOf(initial?.preferredProviderId.orEmpty()) }
     var preferredModel by rememberSaveable { mutableStateOf(initial?.preferredModelId.orEmpty()) }
     var disableAllTools by rememberSaveable { mutableStateOf(initial?.disableAllTools ?: false) }
     var useCustomTools by rememberSaveable {
@@ -428,6 +434,34 @@ private fun AgentEditorDialog(
                     shape = RoundedCornerShape(SwissGeometry.radiusSmall),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (providers.isNotEmpty()) {
+                    Text(
+                        text = "Preferred Provider (optional)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = tokens.primaryText
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = preferredProviderId.isBlank(),
+                            onClick = { preferredProviderId = "" },
+                            label = { Text("Active Default", style = MaterialTheme.typography.labelSmall) },
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        providers.forEach { prov ->
+                            FilterChip(
+                                selected = preferredProviderId == prov.id,
+                                onClick = { preferredProviderId = prov.id },
+                                label = { Text(prov.name, style = MaterialTheme.typography.labelSmall) },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = preferredModel,
                     onValueChange = { preferredModel = it },
@@ -510,6 +544,7 @@ private fun AgentEditorDialog(
                         description,
                         systemPrompt,
                         preferredModel,
+                        preferredProviderId,
                         if (useCustomTools && !disableAllTools) selectedTools else emptyList(),
                         disableAllTools
                     )

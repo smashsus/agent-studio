@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.agent.AgentProfile
+import com.example.agent.SwarmConfig
 import com.example.app.AgentStudioApp
 import com.example.authentication.AuthState
 import com.example.authentication.ProviderMode
@@ -29,9 +30,11 @@ import com.example.model.OpenAiCompatibleModelProvider
 import com.example.settings.AgentSettings
 import com.example.settings.AutonomyLevel
 import com.example.settings.SavedProviderProfile
+import com.example.settings.TokenUsageSnapshot
 import com.example.tools.ToolDefinition
 import com.example.tools.ToolResult
 import com.example.tools.WorkspaceFileInfo
+import com.example.tools.ZipArchiveTool
 import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -145,6 +148,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val agentProfiles: StateFlow<List<AgentProfile>> = container.agentProfileStore.agents
     val activeAgentId: StateFlow<String> = container.agentProfileStore.activeAgentId
+
+    val tokenUsage: StateFlow<TokenUsageSnapshot> = container.tokenUsageStore.snapshot
+    val swarmConfig: StateFlow<SwarmConfig> = container.swarmConfigStore.config
 
     val toolDefinitions: List<ToolDefinition> = container.toolRegistry.allDefinitions()
 
@@ -351,8 +357,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveApiFallback(apiKey: String, baseUrl: String, modelId: String, isCustom: Boolean) {
+        saveQuickConnectEndpoint(
+            apiKey = apiKey,
+            baseUrl = baseUrl,
+            modelId = modelId,
+            saveAsNew = false
+        )
+    }
+
+    fun saveQuickConnectEndpoint(
+        apiKey: String,
+        baseUrl: String,
+        modelId: String,
+        saveAsNew: Boolean
+    ) {
+        val cleanBase = OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+        val activeId = container.providerRegistryStore.activeProviderId.value
+        val activeProfile = savedProviders.value.firstOrNull { it.id == activeId }
+        val sameEndpoint = activeProfile != null &&
+            activeProfile.baseUrl.equals(cleanBase, ignoreCase = true)
+        val targetExistingId = if (saveAsNew || !sameEndpoint) null else activeId
         saveProviderProfile(
-            existingId = container.providerRegistryStore.activeProviderId.value,
+            existingId = targetExistingId,
             name = "",
             baseUrl = baseUrl,
             apiKey = apiKey,
@@ -534,7 +560,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         preferredModelId = "",
                         allowedTools = currentAgent.allowedTools,
                         disableAllTools = currentAgent.disableAllTools,
-                        activate = true
+                        activate = true,
+                        preferredProviderId = currentAgent.preferredProviderId
                     )
                 }
             }
@@ -552,6 +579,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun hasKeyForProvider(providerId: String): Boolean = container.providerRegistryStore.hasProviderKey(providerId)
+
+    // --- Token Usage & Swarm Mode ---
+    fun resetTokenUsage() {
+        container.tokenUsageStore.reset()
+        _snackbarMessage.value = "Token usage counters reset."
+    }
+
+    fun setSwarmEnabled(enabled: Boolean) {
+        container.swarmConfigStore.setEnabled(enabled)
+        _snackbarMessage.value = if (enabled) {
+            "Swarm Mode enabled (${swarmConfig.value.members.size} agents)."
+        } else {
+            "Swarm Mode disabled."
+        }
+    }
+
+    fun setSwarmCritiqueRounds(rounds: Int) {
+        container.swarmConfigStore.setMaxCritiqueRounds(rounds)
+    }
+
+    fun setSwarmAgentCount(count: Int) {
+        val pool = agentProfiles.value.filter { it.isInstalled }.map { it.id }
+        container.swarmConfigStore.setTargetMemberCount(count, pool)
+    }
+
+    fun addSwarmMember(
+        agentId: String,
+        providerId: String,
+        modelIdOverride: String,
+        roleNote: String
+    ) {
+        container.swarmConfigStore.addMember(agentId, providerId, modelIdOverride, roleNote)
+    }
+
+    fun updateSwarmMember(
+        slotId: String,
+        agentId: String,
+        providerId: String,
+        modelIdOverride: String,
+        roleNote: String
+    ) {
+        container.swarmConfigStore.updateMember(slotId, agentId, providerId, modelIdOverride, roleNote)
+    }
+
+    fun removeSwarmMember(slotId: String) {
+        container.swarmConfigStore.removeMember(slotId)
+    }
+
+    fun resetSwarmDefaults() {
+        container.swarmConfigStore.resetDefaults()
+    }
 
     // --- OpenCode-Style Agents ---
     fun selectAgent(agentId: String) {
@@ -573,7 +651,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         preferredModelId: String,
         allowedTools: List<String>,
         disableAllTools: Boolean,
-        activate: Boolean = true
+        activate: Boolean = true,
+        preferredProviderId: String = ""
     ) {
         val saved = container.agentProfileStore.saveOrUpdateAgent(
             existingId = existingId,
@@ -584,7 +663,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             preferredModelId = preferredModelId,
             allowedTools = allowedTools,
             disableAllTools = disableAllTools,
-            activate = activate
+            activate = activate,
+            preferredProviderId = preferredProviderId
         )
         _snackbarMessage.value = "Saved agent ${saved.name} (${saved.handle})."
     }
@@ -718,6 +798,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 type = when (fileInfo.extension) {
                     "pdf" -> "application/pdf"
                     "html" -> "text/html"
+                    "zip" -> "application/zip"
                     else -> "text/plain"
                 }
                 putExtra(Intent.EXTRA_STREAM, uri)
@@ -729,6 +810,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             app.startActivity(chooser)
         }.onFailure {
             _snackbarMessage.value = "Share failed: ${it.message}"
+        }
+    }
+
+    fun runOcrOnUri(uri: Uri) {
+        viewModelScope.launch {
+            val name = resolveDisplayName(uri)
+            val res = container.ocrHelper.recognizeImageUri(uri)
+            res.onSuccess { text ->
+                if (text.isBlank()) {
+                    _snackbarMessage.value = "OCR detected no readable text in $name."
+                } else {
+                    _filePreviewContent.value = "OCR · $name" to text
+                }
+            }.onFailure { err ->
+                _snackbarMessage.value = "OCR failed: ${err.message}"
+            }
+        }
+    }
+
+    fun createZipFromFile(fileInfo: WorkspaceFileInfo) {
+        viewModelScope.launch {
+            val tool = ZipArchiveTool(container.fileManager)
+            val res = tool.execute(
+                buildJsonObject {
+                    put("action", "zip")
+                    put("source", fileInfo.relativePath)
+                    put("destination", "${fileInfo.name.substringBeforeLast('.')}.zip")
+                },
+                settings.value
+            )
+            refreshWorkspaceFiles()
+            _snackbarMessage.value = if (res.success) res.output else (res.error ?: "Zip failed.")
         }
     }
 
@@ -746,7 +859,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun runShellInSandbox(command: String) {
         viewModelScope.launch {
-            _shellSandboxOutput.value = "Executing via /system/bin/sh..."
+            _shellSandboxOutput.value = "Executing inside Agent Studio sandbox..."
             val tool = container.toolRegistry.getTool("run_shell")
             val result: ToolResult = tool?.execute(
                 buildJsonObject { put("command", command) },

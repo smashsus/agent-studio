@@ -71,6 +71,8 @@ import com.example.ui.components.SwissPrimaryButton
 import com.example.ui.components.SwissSectionHeader
 import com.example.ui.components.SwissSurfaceCard
 import com.example.ui.components.SwissTopBar
+import com.example.ui.components.TokenUsageOverviewCard
+import com.example.ui.components.TokenUsageSheet
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
@@ -93,6 +95,7 @@ fun AuthScreen(
     val savedProviders by viewModel.savedProviders.collectAsStateWithLifecycle()
     val activeProviderId by viewModel.activeProviderId.collectAsStateWithLifecycle()
     val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
+    val tokenUsage by viewModel.tokenUsage.collectAsStateWithLifecycle()
 
     var showWebBrowserModal by rememberSaveable { mutableStateOf(false) }
     var webPortalUrl by rememberSaveable { mutableStateOf(viewModel.getSavedWebPortalUrl()) }
@@ -104,6 +107,7 @@ fun AuthScreen(
     var editingProvider by androidx.compose.runtime.remember { mutableStateOf<SavedProviderProfile?>(null) }
     var showAddProviderDialog by androidx.compose.runtime.remember { mutableStateOf(false) }
     var showModelSheet by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var showTokenUsageSheet by androidx.compose.runtime.remember { mutableStateOf(false) }
 
     LaunchedEffect(settings.customBaseUrl, settings.modelId) {
         if (!hasLocalEdits) {
@@ -238,6 +242,13 @@ fun AuthScreen(
                         modifier = Modifier.fillMaxWidth().testTag("logout_all_button")
                     )
                 }
+            }
+
+            item {
+                TokenUsageOverviewCard(
+                    snapshot = tokenUsage,
+                    onOpenDetails = { showTokenUsageSheet = true }
+                )
             }
 
             // Saved Providers (OpenCode-style multi-provider list with Edit-After-Save & Model IDs)
@@ -383,6 +394,9 @@ fun AuthScreen(
                     } else {
                         "Save & Connect Endpoint"
                     }
+                    val quickEnabled = (apiKeyInput.isNotBlank() || hasStoredKey) &&
+                        baseUrlInput.isNotBlank() &&
+                        modelIdInput.isNotBlank()
 
                     SwissPrimaryButton(
                         text = buttonText,
@@ -398,12 +412,31 @@ fun AuthScreen(
                             )
                             apiKeyInput = ""
                         },
-                        enabled = (apiKeyInput.isNotBlank() || hasStoredKey) &&
-                            baseUrlInput.isNotBlank() &&
-                            modelIdInput.isNotBlank(),
+                        enabled = quickEnabled,
                         icon = PhosphorIcons.Regular.LockSimple,
                         modifier = Modifier.fillMaxWidth().testTag("save_api_fallback_button")
                     )
+
+                    if (savedProviders.isNotEmpty()) {
+                        SwissOutlinedButton(
+                            text = "Save as New Provider Profile",
+                            onClick = {
+                                val cleanBase = baseUrlInput.trim()
+                                val cleanModel = modelIdInput.trim()
+                                hasLocalEdits = false
+                                viewModel.saveQuickConnectEndpoint(
+                                    apiKey = apiKeyInput,
+                                    baseUrl = cleanBase,
+                                    modelId = cleanModel,
+                                    saveAsNew = true
+                                )
+                                apiKeyInput = ""
+                            },
+                            enabled = quickEnabled,
+                            icon = PhosphorIcons.Regular.Plus,
+                            modifier = Modifier.fillMaxWidth().testTag("save_as_new_provider_button")
+                        )
+                    }
                 }
             }
 
@@ -499,6 +532,14 @@ fun AuthScreen(
             onSelectModel = { provId, mId -> viewModel.selectModelIdForProvider(provId, mId) },
             onRemoveModel = { provId, mId -> viewModel.removeModelIdFromProvider(provId, mId) },
             onOpenEndpoints = { showModelSheet = false }
+        )
+    }
+
+    if (showTokenUsageSheet) {
+        TokenUsageSheet(
+            snapshot = tokenUsage,
+            onDismiss = { showTokenUsageSheet = false },
+            onReset = { viewModel.resetTokenUsage() }
         )
     }
 

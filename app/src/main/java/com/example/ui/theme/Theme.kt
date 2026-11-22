@@ -1,11 +1,10 @@
 package com.example.ui.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -14,10 +13,19 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-enum class ThemeMode(val label: String) {
-    DARK("Dark"),
-    LIGHT("Light"),
-    SYSTEM("System")
+enum class ThemeMode(val label: String, val swatchColor: Color) {
+    WHITE("Pure White", WhitePrimaryAccent),
+    LINEN("Warm Paper", LinenPrimaryAccent),
+    SAGE("Soft Sage", SagePrimaryAccent),
+    SKY("Pale Mist", SkyPrimaryAccent),
+    LAVENDER("Soft Lilac", LavenderPrimaryAccent);
+
+    companion object {
+        fun fromStored(raw: String?): ThemeMode {
+            if (raw.isNullOrBlank()) return WHITE
+            return entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: WHITE
+        }
+    }
 }
 
 @Immutable
@@ -35,7 +43,7 @@ data class SwissTokens(
     val success: Color,
     val warning: Color,
     val error: Color,
-    val isDark: Boolean
+    val isDark: Boolean = false
 )
 
 object SwissGeometry {
@@ -75,99 +83,125 @@ object SwissMotion {
     const val dialogDurationMs = 180
 }
 
-private val DarkTokens = SwissTokens(
-    background = DarkBackground,
-    surface1 = DarkSurface1,
-    surface2 = DarkSurface2,
-    surface3 = DarkSurface3,
-    border = DarkBorder,
-    primaryText = DarkPrimaryText,
-    secondaryText = DarkSecondaryText,
-    mutedText = DarkMutedText,
-    primaryAccent = DarkPrimaryAccent,
-    secondaryAccent = DarkSecondaryAccent,
-    success = DarkSuccess,
-    warning = DarkWarning,
-    error = DarkError,
-    isDark = true
+private val WhiteTokens = SwissTokens(
+    background = WhiteBackground,
+    surface1 = WhiteSurface1,
+    surface2 = WhiteSurface2,
+    surface3 = WhiteSurface3,
+    border = WhiteBorder,
+    primaryText = WhitePrimaryText,
+    secondaryText = WhiteSecondaryText,
+    mutedText = WhiteMutedText,
+    primaryAccent = WhitePrimaryAccent,
+    secondaryAccent = WhiteSecondaryAccent,
+    success = SoftSuccess,
+    warning = SoftWarning,
+    error = SoftError
 )
 
-private val LightTokens = SwissTokens(
-    background = LightBackground,
-    surface1 = LightSurface1,
-    surface2 = LightSurface2,
-    surface3 = LightSurface3,
-    border = LightBorder,
-    primaryText = LightPrimaryText,
-    secondaryText = LightSecondaryText,
-    mutedText = LightMutedText,
-    primaryAccent = LightPrimaryAccent,
-    secondaryAccent = LightSecondaryAccent,
-    success = LightSuccess,
-    warning = LightWarning,
-    error = LightError,
-    isDark = false
+private val LinenTokens = SwissTokens(
+    background = LinenBackground,
+    surface1 = LinenSurface1,
+    surface2 = LinenSurface2,
+    surface3 = LinenSurface3,
+    border = LinenBorder,
+    primaryText = LinenPrimaryText,
+    secondaryText = LinenSecondaryText,
+    mutedText = LinenMutedText,
+    primaryAccent = LinenPrimaryAccent,
+    secondaryAccent = LinenSecondaryAccent,
+    success = SoftSuccess,
+    warning = SoftWarning,
+    error = SoftError
 )
 
-val LocalSwissTokens = staticCompositionLocalOf { LightTokens }
-
-private val SwissDarkScheme = darkColorScheme(
-    primary = DarkPrimaryAccent,
-    onPrimary = DarkBackground,
-    primaryContainer = DarkSurface2,
-    onPrimaryContainer = DarkPrimaryText,
-    secondary = DarkSecondaryAccent,
-    onSecondary = DarkBackground,
-    secondaryContainer = DarkSurface3,
-    onSecondaryContainer = DarkPrimaryText,
-    tertiary = DarkSuccess,
-    onTertiary = DarkBackground,
-    background = DarkBackground,
-    onBackground = DarkPrimaryText,
-    surface = DarkSurface1,
-    onSurface = DarkPrimaryText,
-    surfaceVariant = DarkSurface2,
-    onSurfaceVariant = DarkSecondaryText,
-    surfaceContainerLow = DarkSurface1,
-    surfaceContainer = DarkSurface2,
-    surfaceContainerHigh = DarkSurface3,
-    outline = DarkBorder,
-    outlineVariant = DarkBorder,
-    error = DarkError,
-    onError = DarkBackground,
-    errorContainer = DarkSurface2,
-    onErrorContainer = DarkError
+private val SageTokens = SwissTokens(
+    background = SageBackground,
+    surface1 = SageSurface1,
+    surface2 = SageSurface2,
+    surface3 = SageSurface3,
+    border = SageBorder,
+    primaryText = SagePrimaryText,
+    secondaryText = SageSecondaryText,
+    mutedText = SageMutedText,
+    primaryAccent = SagePrimaryAccent,
+    secondaryAccent = SageSecondaryAccent,
+    success = SoftSuccess,
+    warning = SoftWarning,
+    error = SoftError
 )
 
-private val SwissLightScheme = lightColorScheme(
-    primary = LightPrimaryAccent,
+private val SkyTokens = SwissTokens(
+    background = SkyBackground,
+    surface1 = SkySurface1,
+    surface2 = SkySurface2,
+    surface3 = SkySurface3,
+    border = SkyBorder,
+    primaryText = SkyPrimaryText,
+    secondaryText = SkySecondaryText,
+    mutedText = SkyMutedText,
+    primaryAccent = SkyPrimaryAccent,
+    secondaryAccent = SkySecondaryAccent,
+    success = SoftSuccess,
+    warning = SoftWarning,
+    error = SoftError
+)
+
+private val LavenderTokens = SwissTokens(
+    background = LavenderBackground,
+    surface1 = LavenderSurface1,
+    surface2 = LavenderSurface2,
+    surface3 = LavenderSurface3,
+    border = LavenderBorder,
+    primaryText = LavenderPrimaryText,
+    secondaryText = LavenderSecondaryText,
+    mutedText = LavenderMutedText,
+    primaryAccent = LavenderPrimaryAccent,
+    secondaryAccent = LavenderSecondaryAccent,
+    success = SoftSuccess,
+    warning = SoftWarning,
+    error = SoftError
+)
+
+fun tokensForTheme(mode: ThemeMode): SwissTokens = when (mode) {
+    ThemeMode.WHITE -> WhiteTokens
+    ThemeMode.LINEN -> LinenTokens
+    ThemeMode.SAGE -> SageTokens
+    ThemeMode.SKY -> SkyTokens
+    ThemeMode.LAVENDER -> LavenderTokens
+}
+
+private fun buildLightColorScheme(t: SwissTokens): ColorScheme = lightColorScheme(
+    primary = t.primaryAccent,
     onPrimary = Color.White,
-    primaryContainer = LightSurface2,
-    onPrimaryContainer = LightPrimaryText,
-    secondary = LightSecondaryAccent,
+    primaryContainer = t.surface2,
+    onPrimaryContainer = t.primaryText,
+    secondary = t.secondaryAccent,
     onSecondary = Color.White,
-    secondaryContainer = LightSurface3,
-    onSecondaryContainer = LightPrimaryText,
-    tertiary = LightSuccess,
+    secondaryContainer = t.surface3,
+    onSecondaryContainer = t.primaryText,
+    tertiary = t.success,
     onTertiary = Color.White,
-    background = LightBackground,
-    onBackground = LightPrimaryText,
-    surface = LightSurface1,
-    onSurface = LightPrimaryText,
-    surfaceVariant = LightSurface2,
-    onSurfaceVariant = LightSecondaryText,
-    surfaceContainerLowest = LightSurface1,
-    surfaceContainerLow = LightSurface1,
-    surfaceContainer = LightSurface2,
-    surfaceContainerHigh = LightSurface3,
-    surfaceContainerHighest = LightSurface3,
-    outline = LightBorder,
-    outlineVariant = LightBorder,
-    error = LightError,
+    background = t.background,
+    onBackground = t.primaryText,
+    surface = t.surface1,
+    onSurface = t.primaryText,
+    surfaceVariant = t.surface2,
+    onSurfaceVariant = t.secondaryText,
+    surfaceContainerLowest = t.surface1,
+    surfaceContainerLow = t.surface1,
+    surfaceContainer = t.surface2,
+    surfaceContainerHigh = t.surface3,
+    surfaceContainerHighest = t.surface3,
+    outline = t.border,
+    outlineVariant = t.border,
+    error = t.error,
     onError = Color.White,
-    errorContainer = LightSurface2,
-    onErrorContainer = LightError
+    errorContainer = t.surface2,
+    onErrorContainer = t.error
 )
+
+val LocalSwissTokens = staticCompositionLocalOf { WhiteTokens }
 
 val SwissShapes = Shapes(
     small = RoundedCornerShape(SwissGeometry.radiusSmall),
@@ -178,16 +212,11 @@ val SwissShapes = Shapes(
 
 @Composable
 fun AgentStudioTheme(
-    themeMode: ThemeMode = ThemeMode.LIGHT,
+    themeMode: ThemeMode = ThemeMode.WHITE,
     content: @Composable () -> Unit
 ) {
-    val useDark = when (themeMode) {
-        ThemeMode.DARK -> true
-        ThemeMode.LIGHT -> false
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-    }
-    val tokens = if (useDark) DarkTokens else LightTokens
-    val colorScheme = if (useDark) SwissDarkScheme else SwissLightScheme
+    val tokens = tokensForTheme(themeMode)
+    val colorScheme = buildLightColorScheme(tokens)
 
     CompositionLocalProvider(LocalSwissTokens provides tokens) {
         MaterialTheme(

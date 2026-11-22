@@ -39,7 +39,7 @@ data class AgentSettings(
     val retryLimit: Int = 2,
     val timeoutSeconds: Int = 30,
     val maxSteps: Int = 10,
-    val themeMode: ThemeMode = ThemeMode.LIGHT,
+    val themeMode: ThemeMode = ThemeMode.WHITE,
     val restrictNetworkDomains: Boolean = false,
     val allowedDomainsCsv: String = "duckduckgo.com,en.wikipedia.org,github.com,arxiv.org",
     val longTermMemoryEnabled: Boolean = true,
@@ -69,9 +69,7 @@ class SettingsStore(private val context: Context) {
         val autonomy = prefs[Keys.AUTONOMY_LEVEL]
             ?.let { runCatching { AutonomyLevel.valueOf(it) }.getOrNull() }
             ?: AutonomyLevel.AUTONOMOUS
-        val theme = prefs[Keys.THEME_MODE]
-            ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
-            ?: ThemeMode.LIGHT
+        val theme = ThemeMode.fromStored(prefs[Keys.THEME_MODE])
         AgentSettings(
             autonomyLevel = autonomy,
             modelId = prefs[Keys.MODEL_ID].orEmpty(),

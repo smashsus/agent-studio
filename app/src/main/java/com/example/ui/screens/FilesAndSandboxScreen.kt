@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -52,6 +53,7 @@ import com.adamglin.phosphoricons.regular.FileHtml
 import com.adamglin.phosphoricons.regular.FilePdf
 import com.adamglin.phosphoricons.regular.FileText
 import com.adamglin.phosphoricons.regular.FolderOpen
+import com.adamglin.phosphoricons.regular.MagnifyingGlass
 import com.adamglin.phosphoricons.regular.Play
 import com.adamglin.phosphoricons.regular.ShareNetwork
 import com.adamglin.phosphoricons.regular.Trash
@@ -98,6 +100,14 @@ fun FilesAndSandboxScreen(
         }
     }
 
+    val ocrPhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.runOcrOnUri(uri)
+        }
+    }
+
     LaunchedEffect(Unit) {
         viewModel.refreshWorkspaceFiles()
     }
@@ -118,9 +128,24 @@ fun FilesAndSandboxScreen(
             .background(tokens.background)
     ) {
         SwissTopBar(
-            title = "Files",
-            subtitle = "${files.size} workspace artifacts",
+            title = "Agent Studio Files",
+            subtitle = "${files.size} sandboxed artifacts",
             actions = {
+                IconButton(
+                    onClick = {
+                        ocrPhotoLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    modifier = Modifier.size(SwissGeometry.minTouchTarget).testTag("scan_image_ocr_button")
+                ) {
+                    Icon(
+                        PhosphorIcons.Regular.MagnifyingGlass,
+                        contentDescription = "Scan Image with OCR",
+                        tint = tokens.primaryAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 IconButton(
                     onClick = { viewModel.refreshWorkspaceFiles() },
                     modifier = Modifier.size(SwissGeometry.minTouchTarget)
@@ -157,11 +182,12 @@ fun FilesAndSandboxScreen(
                 ) {
                     listOf(
                         "all" to "All",
-                        "workspace" to "Workspace",
+                        "workspace" to "Root",
                         "reports" to "Reports",
                         "code" to "Code",
                         "notes" to "Notes",
-                        "downloads" to "Downloads"
+                        "downloads" to "Downloads",
+                        "archives" to "Archives"
                     ).forEach { (key, label) ->
                         val selected = categoryFilter == key
                         FilterChip(
@@ -205,6 +231,7 @@ fun FilesAndSandboxScreen(
                     CompactWorkspaceFileRow(
                         file = file,
                         onPreview = { viewModel.openWorkspaceFilePreview(file) },
+                        onZip = { viewModel.createZipFromFile(file) },
                         onExportSaf = {
                             pendingExportPath = file.absolutePath
                             exportLauncher.launch(file.name)
@@ -262,10 +289,10 @@ fun FilesAndSandboxScreen(
 
             item {
                 Spacer(Modifier.height(8.dp))
-                SwissSectionHeader(title = "Shell Console", trailingText = "/system/bin/sh")
+                SwissSectionHeader(title = "Shell Console", trailingText = "Agent Studio Sandbox")
                 SwissSurfaceCard {
                     Text(
-                        text = "Run POSIX/Toybox shell commands inside the app sandbox (working directory: AgentWorkspace).",
+                        text = "Strict sandbox inside 'Agent Studio' (external phone folders blocked). Supports zip, unzip, curl, iplookup, python3 -m zipfile, and toybox commands.",
                         style = MaterialTheme.typography.bodySmall,
                         color = tokens.secondaryText
                     )
@@ -338,6 +365,7 @@ fun FilesAndSandboxScreen(
 private fun CompactWorkspaceFileRow(
     file: WorkspaceFileInfo,
     onPreview: () -> Unit,
+    onZip: () -> Unit,
     onExportSaf: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
@@ -347,6 +375,7 @@ private fun CompactWorkspaceFileRow(
         "pdf" -> PhosphorIcons.Regular.FilePdf
         "html", "htm" -> PhosphorIcons.Regular.FileHtml
         "js", "json", "kt", "py" -> PhosphorIcons.Regular.FileCode
+        "zip" -> PhosphorIcons.Regular.FolderOpen
         else -> PhosphorIcons.Regular.FileText
     }
 
@@ -393,17 +422,22 @@ private fun CompactWorkspaceFileRow(
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPreview, modifier = Modifier.size(38.dp)) {
-                    Icon(PhosphorIcons.Regular.Eye, contentDescription = "Preview", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
+                IconButton(onClick = onPreview, modifier = Modifier.size(34.dp)) {
+                    Icon(PhosphorIcons.Regular.Eye, contentDescription = "Preview", tint = tokens.secondaryText, modifier = Modifier.size(16.dp))
                 }
-                IconButton(onClick = onExportSaf, modifier = Modifier.size(38.dp)) {
-                    Icon(PhosphorIcons.Regular.DownloadSimple, contentDescription = "Save via SAF", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
+                if (file.extension != "zip") {
+                    IconButton(onClick = onZip, modifier = Modifier.size(34.dp)) {
+                        Icon(PhosphorIcons.Regular.FolderOpen, contentDescription = "Zip File", tint = tokens.secondaryText, modifier = Modifier.size(16.dp))
+                    }
                 }
-                IconButton(onClick = onShare, modifier = Modifier.size(38.dp)) {
-                    Icon(PhosphorIcons.Regular.ShareNetwork, contentDescription = "Share", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
+                IconButton(onClick = onExportSaf, modifier = Modifier.size(34.dp)) {
+                    Icon(PhosphorIcons.Regular.DownloadSimple, contentDescription = "Save via SAF", tint = tokens.secondaryText, modifier = Modifier.size(16.dp))
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(38.dp)) {
-                    Icon(PhosphorIcons.Regular.Trash, contentDescription = "Delete", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
+                IconButton(onClick = onShare, modifier = Modifier.size(34.dp)) {
+                    Icon(PhosphorIcons.Regular.ShareNetwork, contentDescription = "Share", tint = tokens.secondaryText, modifier = Modifier.size(16.dp))
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                    Icon(PhosphorIcons.Regular.Trash, contentDescription = "Delete", tint = tokens.secondaryText, modifier = Modifier.size(16.dp))
                 }
             }
         }

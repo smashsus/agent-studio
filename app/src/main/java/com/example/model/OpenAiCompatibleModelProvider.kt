@@ -1,6 +1,8 @@
 package com.example.model
 
 import com.example.authentication.AuthManager
+import com.example.settings.ProviderRegistryStore
+import com.example.settings.TokenEstimator
 import com.example.tools.ToolCallRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +15,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.ConnectionSpec
@@ -21,6 +24,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLException
@@ -35,23 +39,23 @@ class OpenAiCompatibleModelProvider(
 ) : ModelProvider {
 
     override val providerName: String = "Compatible API Endpoint"
-    private val activeCall = AtomicReference<Call?>(null)
+    private val inFlightCalls = ConcurrentHashMap.newKeySet<Call>()
 
     override suspend fun generateNextStep(request: ModelRequest): ModelResponse =
         withContext(Dispatchers.IO) {
-            val apiKey = authManager.getApiKeyForModelTransport()
+            val apiKey = request.providerApiKeyOverride?.takeIf { it.isNotBlank() }
+                ?: authManager.getApiKeyForModelTransport()
                 ?: return@withContext ModelResponse.ErrorResponse(
-                    "No API key configured in Android Keystore. Open Account & Endpoints to connect your API key.",
+                    "No API key configured in Android Keystore. Open Providers to connect your API key.",
                     retryable = false
                 )
 
-            val rawBase = request.settings.customBaseUrl.ifBlank {
-                authManager.getSavedApiBaseUrl()
-            }
+            val rawBase = request.providerBaseUrlOverride?.takeIf { it.isNotBlank() }
+                ?: request.settings.customBaseUrl.ifBlank { authManager.getSavedApiBaseUrl() }
             val baseUrl = normalizeBaseUrl(rawBase)
             if (baseUrl.isBlank()) {
                 return@withContext ModelResponse.ErrorResponse(
-                    "Endpoint Base URL is not configured. Open Account & Endpoints to set an HTTPS Base URL.",
+                    "Endpoint Base URL is not configured. Open Providers to set an HTTPS Base URL.",
                     retryable = false
                 )
             }
@@ -65,19 +69,33 @@ class OpenAiCompatibleModelProvider(
             val modelId = request.settings.modelId.trim()
             if (modelId.isEmpty()) {
                 return@withContext ModelResponse.ErrorResponse(
-                    "Model ID is not configured. Enter a Model ID in Account & Endpoints or Settings.",
+                    "Model ID is not configured. Enter a Model ID in Providers or Settings.",
                     retryable = false
                 )
             }
 
+            val attachTools = request.toolsSchemaJson.isNotEmpty() && !modelId.contains("reasoner", true)
             val payload = buildJsonObject {
                 put("model", modelId)
                 put("messages", buildMessagesArray(request.systemPrompt, request.messages))
-                if (request.toolsSchemaJson.isNotEmpty() && !modelId.contains("reasoner", true)) {
+                if (attachTools) {
                     put("tools", request.toolsSchemaJson)
                     put("tool_choice", "auto")
                 }
                 put("temperature", 0.3)
+            }
+
+            val toolsSchemaText = if (attachTools) request.toolsSchemaJson.toString() else ""
+            val resolvedProviderId = request.providerId?.takeIf { it.isNotBlank() } ?: baseUrl
+            val resolvedProviderName = request.providerName?.takeIf { it.isNotBlank() }
+                ?: ProviderRegistryStore.deriveProviderName(baseUrl)
+            val inputMessageTexts = request.messages.map { m ->
+                buildString {
+                    append(m.content)
+                    m.toolCalls?.forEach { tc ->
+                        append(' ').append(tc.toolName).append(' ').append(tc.argumentsJson)
+                    }
+                }
             }
 
             val httpRequest = Request.Builder()
@@ -90,8 +108,9 @@ class OpenAiCompatibleModelProvider(
                 .build()
 
             val timeoutSec = request.settings.timeoutSeconds.toLong().coerceIn(10L, 120L)
+            val callHolder = AtomicReference<Call?>(null)
             try {
-                executeRequestWithTlsFallback(httpRequest, timeoutSec, activeCall).use { response ->
+                executeRequestWithTlsFallback(httpRequest, timeoutSec, callHolder, inFlightCalls).use { response ->
                     val bodyStr = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
                         val retryable = response.code == 429 || response.code >= 500
@@ -100,21 +119,31 @@ class OpenAiCompatibleModelProvider(
                             retryable = retryable
                         )
                     }
-                    parseResponseBody(bodyStr)
+                    parseResponseBody(
+                        body = bodyStr,
+                        providerId = resolvedProviderId,
+                        providerName = resolvedProviderName,
+                        modelId = modelId,
+                        systemPrompt = request.systemPrompt,
+                        toolsSchemaText = toolsSchemaText,
+                        inputMessageTexts = inputMessageTexts
+                    )
                 }
             } catch (e: Exception) {
-                val cancelled = activeCall.get()?.isCanceled() == true
+                val cancelled = callHolder.get()?.isCanceled() == true
                 ModelResponse.ErrorResponse(
                     message = if (cancelled) "Request cancelled." else "Network error: ${e.message ?: "Unknown"}",
                     retryable = !cancelled
                 )
             } finally {
-                activeCall.set(null)
+                callHolder.getAndSet(null)?.let { inFlightCalls.remove(it) }
             }
         }
 
     override fun cancelActiveRequest() {
-        activeCall.getAndSet(null)?.cancel()
+        val snapshot = inFlightCalls.toList()
+        inFlightCalls.clear()
+        snapshot.forEach { runCatching { it.cancel() } }
     }
 
     private fun buildMessagesArray(systemPrompt: String, messages: List<ModelMessage>): JsonArray {
@@ -165,7 +194,8 @@ class OpenAiCompatibleModelProvider(
         internal fun executeRequestWithTlsFallback(
             request: Request,
             timeoutSeconds: Long,
-            activeCall: AtomicReference<Call?>? = null
+            activeCall: AtomicReference<Call?>? = null,
+            callRegistry: MutableSet<Call>? = null
         ): okhttp3.Response {
             val primaryClient = OkHttpClient.Builder()
                 .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
@@ -176,9 +206,11 @@ class OpenAiCompatibleModelProvider(
 
             val primaryCall = primaryClient.newCall(request)
             activeCall?.set(primaryCall)
+            callRegistry?.add(primaryCall)
             return try {
                 primaryCall.execute()
             } catch (ssl: SSLException) {
+                callRegistry?.remove(primaryCall)
                 if (primaryCall.isCanceled()) throw ssl
                 val http1Client = OkHttpClient.Builder()
                     .protocols(listOf(Protocol.HTTP_1_1))
@@ -190,6 +222,7 @@ class OpenAiCompatibleModelProvider(
                     .build()
                 val retryCall = http1Client.newCall(request)
                 activeCall?.set(retryCall)
+                callRegistry?.add(retryCall)
                 retryCall.execute()
             }
         }
@@ -267,7 +300,15 @@ class OpenAiCompatibleModelProvider(
             return url
         }
 
-        internal fun parseResponseBody(body: String): ModelResponse {
+        internal fun parseResponseBody(
+            body: String,
+            providerId: String = "endpoint",
+            providerName: String = "Endpoint",
+            modelId: String = "model",
+            systemPrompt: String = "",
+            toolsSchemaText: String = "",
+            inputMessageTexts: List<String> = emptyList()
+        ): ModelResponse {
             return runCatching {
                 val root = json.parseToJsonElement(body) as? JsonObject
                     ?: return ModelResponse.ErrorResponse("Model returned non-JSON response.")
@@ -279,6 +320,14 @@ class OpenAiCompatibleModelProvider(
                         return ModelResponse.ErrorResponse("Model endpoint error: $errText")
                     }
                 }
+
+                val usageObj = root["usage"] as? JsonObject
+                val reportedPrompt = (usageObj?.get("prompt_tokens") as? JsonPrimitive)?.longOrNull
+                    ?: (usageObj?.get("input_tokens") as? JsonPrimitive)?.longOrNull
+                val reportedCompletion = (usageObj?.get("completion_tokens") as? JsonPrimitive)?.longOrNull
+                    ?: (usageObj?.get("output_tokens") as? JsonPrimitive)?.longOrNull
+                val compDetails = usageObj?.get("completion_tokens_details") as? JsonObject
+                val reportedReasoning = (compDetails?.get("reasoning_tokens") as? JsonPrimitive)?.longOrNull
 
                 val choices = root["choices"] as? JsonArray
                 val choice = choices?.firstOrNull() as? JsonObject
@@ -308,9 +357,29 @@ class OpenAiCompatibleModelProvider(
                         ToolCallRequest(id = id, toolName = name, argumentsJson = args)
                     }
                     if (parsedCalls.isNotEmpty()) {
+                        val toolOutText = buildString {
+                            append(content)
+                            parsedCalls.forEach { tc ->
+                                append(' ').append(tc.toolName).append(' ').append(tc.argumentsJson)
+                            }
+                        }
+                        val tokenUsage = TokenEstimator.buildTurnUsage(
+                            providerId = providerId,
+                            providerName = providerName,
+                            modelId = modelId,
+                            systemPrompt = systemPrompt,
+                            toolsSchemaJsonText = toolsSchemaText,
+                            messagesTexts = inputMessageTexts,
+                            thinkingText = reasoning,
+                            responseText = toolOutText,
+                            reportedPromptTokens = reportedPrompt,
+                            reportedCompletionTokens = reportedCompletion,
+                            reportedReasoningTokens = reportedReasoning
+                        )
                         return ModelResponse.ToolCallsResponse(
                             calls = parsedCalls,
-                            assistantThought = content.takeIf { it.isNotBlank() } ?: reasoning
+                            assistantThought = content.takeIf { it.isNotBlank() } ?: reasoning,
+                            tokenUsage = tokenUsage
                         )
                     }
                 }
@@ -318,15 +387,44 @@ class OpenAiCompatibleModelProvider(
                 // Fallback: check if model emitted JSON tool_call block inside content
                 val embeddedCalls = WebBridgeProvider.parseEmbeddedToolCalls(content)
                 if (embeddedCalls.isNotEmpty()) {
+                    val tokenUsage = TokenEstimator.buildTurnUsage(
+                        providerId = providerId,
+                        providerName = providerName,
+                        modelId = modelId,
+                        systemPrompt = systemPrompt,
+                        toolsSchemaJsonText = toolsSchemaText,
+                        messagesTexts = inputMessageTexts,
+                        thinkingText = reasoning,
+                        responseText = content,
+                        reportedPromptTokens = reportedPrompt,
+                        reportedCompletionTokens = reportedCompletion,
+                        reportedReasoningTokens = reportedReasoning
+                    )
                     return ModelResponse.ToolCallsResponse(
                         calls = embeddedCalls,
-                        assistantThought = reasoning
+                        assistantThought = reasoning,
+                        tokenUsage = tokenUsage
                     )
                 }
 
+                val finalContent = content.ifBlank { "(Model returned empty response.)" }
+                val tokenUsage = TokenEstimator.buildTurnUsage(
+                    providerId = providerId,
+                    providerName = providerName,
+                    modelId = modelId,
+                    systemPrompt = systemPrompt,
+                    toolsSchemaJsonText = toolsSchemaText,
+                    messagesTexts = inputMessageTexts,
+                    thinkingText = reasoning,
+                    responseText = finalContent,
+                    reportedPromptTokens = reportedPrompt,
+                    reportedCompletionTokens = reportedCompletion,
+                    reportedReasoningTokens = reportedReasoning
+                )
                 ModelResponse.TextResponse(
-                    content = content.ifBlank { "(Model returned empty response.)" },
-                    reasoningSummary = reasoning
+                    content = finalContent,
+                    reasoningSummary = reasoning,
+                    tokenUsage = tokenUsage
                 )
             }.getOrElse { err ->
                 ModelResponse.ErrorResponse("Failed to parse model response: ${err.message}")

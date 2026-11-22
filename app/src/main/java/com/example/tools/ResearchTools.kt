@@ -218,7 +218,7 @@ class GenerateReportTool(private val fileManager: WorkspaceFileManager) : AgentT
     override val definition = ToolDefinition(
         name = "generate_report",
         category = "Research",
-        description = "Generates a structured research report (.md or .pdf) inside AgentWorkspace/reports.",
+        description = "Generates a structured research report (.md or .pdf) inside Agent Studio/reports.",
         riskLevel = ToolRiskLevel.SENSITIVE,
         parameters = listOf(
             ToolParameter("title", "string", "Report title."),
@@ -241,7 +241,7 @@ class GenerateReportTool(private val fileManager: WorkspaceFileManager) : AgentT
                 val file = fileManager.writePdfFile("reports", "$slug.pdf", title, plain)
                 ToolResult(
                     success = true,
-                    output = "Saved PDF report '${file.name}' (${file.length()} bytes) in AgentWorkspace/reports.",
+                    output = "Saved PDF report '${fileManager.relativePathOf(file)}' (${file.length()} bytes) in Agent Studio.",
                     artifactPath = file.absolutePath,
                     artifactMimeType = "application/pdf"
                 )
@@ -250,7 +250,7 @@ class GenerateReportTool(private val fileManager: WorkspaceFileManager) : AgentT
                 val file = fileManager.writeTextFile("reports", "$slug.md", content)
                 ToolResult(
                     success = true,
-                    output = "Saved Markdown report '${file.name}' (${file.length()} bytes) in AgentWorkspace/reports.",
+                    output = "Saved Markdown report '${fileManager.relativePathOf(file)}' (${file.length()} bytes) in Agent Studio.",
                     artifactPath = file.absolutePath,
                     artifactMimeType = "text/markdown"
                 )

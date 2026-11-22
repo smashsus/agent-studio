@@ -57,6 +57,8 @@ import com.example.ui.components.SwissSearchField
 import com.example.ui.components.SwissSectionHeader
 import com.example.ui.components.SwissSurfaceCard
 import com.example.ui.components.SwissTopBar
+import com.example.ui.components.TokenUsageOverviewCard
+import com.example.ui.components.TokenUsageSheet
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
 import java.text.SimpleDateFormat
@@ -73,9 +75,11 @@ fun ActivityScreen(
     val latestPlan by viewModel.latestPlan.collectAsStateWithLifecycle()
     val subtasks by viewModel.subtasks.collectAsStateWithLifecycle()
     val logs by viewModel.executionLogs.collectAsStateWithLifecycle()
+    val tokenUsage by viewModel.tokenUsage.collectAsStateWithLifecycle()
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
+    var showTokenUsageSheet by rememberSaveable { mutableStateOf(false) }
 
     val filteredLogs = remember(logs, searchQuery, statusFilter) {
         logs.filter { log ->
@@ -118,6 +122,13 @@ fun ActivityScreen(
             contentPadding = PaddingValues(SwissGeometry.screenPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                TokenUsageOverviewCard(
+                    snapshot = tokenUsage,
+                    onOpenDetails = { showTokenUsageSheet = true }
+                )
+            }
+
             item {
                 SwissSearchField(
                     query = searchQuery,
@@ -205,6 +216,14 @@ fun ActivityScreen(
                 }
             }
         }
+    }
+
+    if (showTokenUsageSheet) {
+        TokenUsageSheet(
+            snapshot = tokenUsage,
+            onDismiss = { showTokenUsageSheet = false },
+            onReset = { viewModel.resetTokenUsage() }
+        )
     }
 }
 

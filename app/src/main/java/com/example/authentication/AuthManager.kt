@@ -23,7 +23,7 @@ import java.net.URI
  */
 class AuthManager(
     context: Context,
-    private val vault: KeystoreVault
+    private val vault: SecretVault
 ) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("deepseek_auth_meta", Context.MODE_PRIVATE)

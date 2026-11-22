@@ -62,6 +62,7 @@ import com.example.ui.components.ChatHistorySheet
 import com.example.ui.components.GeminiChatInputArea
 import com.example.ui.components.HomeWelcomeSection
 import com.example.ui.components.ModelSelectorSheet
+import com.example.ui.components.SwarmConfigSheet
 import com.example.ui.components.SwissBadge
 import com.example.ui.components.SwissDivider
 import com.example.ui.components.SwissStatusIndicator
@@ -91,11 +92,13 @@ fun WorkspaceScreen(
     val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
     val agentProfiles by viewModel.agentProfiles.collectAsStateWithLifecycle()
     val activeAgentId by viewModel.activeAgentId.collectAsStateWithLifecycle()
+    val swarmConfig by viewModel.swarmConfig.collectAsStateWithLifecycle()
 
     var inputText by rememberSaveable { mutableStateOf("") }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showAgentSheet by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
+    var showSwarmSheet by remember { mutableStateOf(false) }
 
     val activeAgent = remember(agentProfiles, activeAgentId) {
         agentProfiles.firstOrNull { it.id == activeAgentId } ?: agentProfiles.firstOrNull()
@@ -197,7 +200,10 @@ fun WorkspaceScreen(
                     onOpenModels = { showModelSheet = true },
                     onOpenEndpoints = onNavigateToAuth,
                     onOpenFiles = onNavigateToFiles,
-                    onOpenActivity = onNavigateToActivity
+                    onOpenActivity = onNavigateToActivity,
+                    swarmEnabled = swarmConfig.enabled,
+                    swarmAgentCount = swarmConfig.members.size,
+                    onOpenSwarm = { showSwarmSheet = true }
                 )
             }
         }
@@ -270,10 +276,11 @@ fun WorkspaceScreen(
             agents = agentProfiles,
             activeAgentId = activeAgentId,
             allTools = viewModel.toolDefinitions,
+            providers = savedProviders,
             onDismiss = { showAgentSheet = false },
             onSelectAgent = { id -> viewModel.selectAgent(id) },
             onInstallCatalogAgent = { id -> viewModel.installCatalogAgent(id, activate = true) },
-            onSaveAgent = { existingId, name, handle, desc, prompt, modelId, tools, disableAll ->
+            onSaveAgent = { existingId, name, handle, desc, prompt, modelId, provId, tools, disableAll ->
                 viewModel.saveOrUpdateAgent(
                     existingId = existingId,
                     name = name,
@@ -283,7 +290,8 @@ fun WorkspaceScreen(
                     preferredModelId = modelId,
                     allowedTools = tools,
                     disableAllTools = disableAll,
-                    activate = true
+                    activate = true,
+                    preferredProviderId = provId
                 )
             },
             onInstallFromSpec = { raw -> viewModel.installAgentFromSpec(raw) },
@@ -303,6 +311,26 @@ fun WorkspaceScreen(
             onSelectModel = { provId, mId -> viewModel.selectModelIdForProvider(provId, mId) },
             onRemoveModel = { provId, mId -> viewModel.removeModelIdFromProvider(provId, mId) },
             onOpenEndpoints = onNavigateToAuth
+        )
+    }
+
+    if (showSwarmSheet) {
+        SwarmConfigSheet(
+            swarmConfig = swarmConfig,
+            agents = agentProfiles,
+            providers = savedProviders,
+            onDismiss = { showSwarmSheet = false },
+            onSetEnabled = { viewModel.setSwarmEnabled(it) },
+            onSetAgentCount = { viewModel.setSwarmAgentCount(it) },
+            onSetCritiqueRounds = { viewModel.setSwarmCritiqueRounds(it) },
+            onAddMember = { agentId, provId, modelOv, roleNote ->
+                viewModel.addSwarmMember(agentId, provId, modelOv, roleNote)
+            },
+            onUpdateMember = { slotId, agentId, provId, modelOv, roleNote ->
+                viewModel.updateSwarmMember(slotId, agentId, provId, modelOv, roleNote)
+            },
+            onRemoveMember = { viewModel.removeSwarmMember(it) },
+            onResetDefaults = { viewModel.resetSwarmDefaults() }
         )
     }
 }

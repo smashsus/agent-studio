@@ -141,4 +141,95 @@ class ExampleUnitTest {
             com.example.model.OpenAiCompatibleModelProvider.parseModelsListBody(modelsObjJson)
         )
     }
+
+    @Test
+    fun tokenAccounting_parsesApiUsageAndSeparatesInstructionsThinkingAndReplies() {
+        val body = """
+            {
+              "choices": [{
+                "message": {
+                  "role": "assistant",
+                  "content": "Final verified summary.",
+                  "reasoning": "Analyzed input step by step."
+                }
+              }],
+              "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 50,
+                "completion_tokens_details": {
+                  "reasoning_tokens": 30
+                }
+              }
+            }
+        """.trimIndent()
+        val resp = com.example.model.OpenAiCompatibleModelProvider.parseResponseBody(
+            body = body,
+            providerId = "prov_fasfas",
+            providerName = "Fasfas AI",
+            modelId = "glm-5.3-flash",
+            systemPrompt = "You are a helpful agent with strict rules.",
+            toolsSchemaText = """[{"type":"function"}]""",
+            inputMessageTexts = listOf("Summarize report.md")
+        ) as com.example.model.ModelResponse.TextResponse
+
+        val usage = resp.tokenUsage!!
+        assertTrue(usage.isApiReported)
+        assertEquals("prov_fasfas", usage.providerId)
+        assertEquals("glm-5.3-flash", usage.modelId)
+        assertEquals(120L, usage.totalInputTokens)
+        assertEquals(50L, usage.totalOutputTokens)
+        assertEquals(30L, usage.outputThinkingTokens)
+        assertEquals(20L, usage.outputResponseTokens)
+        assertEquals(170L, usage.totalTokens)
+    }
+
+    @Test
+    fun historyCleaner_stripsReasoningTraceAndDeduplicatesRepeats() {
+        val msgs = listOf(
+            com.example.database.MessageEntity(conversationId = 1, role = "USER", content = "Check files"),
+            com.example.database.MessageEntity(conversationId = 1, role = "USER", content = "Check files"),
+            com.example.database.MessageEntity(
+                conversationId = 1,
+                role = "ASSISTANT",
+                content = "> **Reasoning Trace:** internal thought\n\nFound 2 files."
+            ),
+            com.example.database.MessageEntity(
+                conversationId = 1,
+                role = "ASSISTANT",
+                content = "Found 2 files."
+            )
+        )
+        val cleaned = com.example.agent.AgentController.stripReasoningTracesAndDeduplicate(msgs)
+        assertEquals(2, cleaned.size)
+        assertEquals("user", cleaned[0].role)
+        assertEquals("Check files", cleaned[0].content)
+        assertEquals("assistant", cleaned[1].role)
+        assertEquals("Found 2 files.", cleaned[1].content)
+    }
+
+    @Test
+    fun swarmOrchestrator_parsesConvergedFlag() {
+        assertTrue(com.example.agent.SwarmOrchestrator.parseConvergedFlag("Looks solid.\nCONVERGED: YES"))
+        assertTrue(com.example.agent.SwarmOrchestrator.parseConvergedFlag("EQUALIZED: true"))
+        assertTrue(!com.example.agent.SwarmOrchestrator.parseConvergedFlag("Missing edge case.\nCONVERGED: NO"))
+    }
+
+    @Test
+    fun shellGuardrails_blocksExternalDirectoriesButAllowsUrls() {
+        assertTrue(com.example.tools.RunShellTool.checkBlockedCommand("ls /sdcard/Download") != null)
+        assertTrue(com.example.tools.RunShellTool.checkBlockedCommand("ls /system/bin") != null)
+        assertTrue(com.example.tools.RunShellTool.checkBlockedCommand("cat ../../etc/passwd") != null)
+        assertEquals(null, com.example.tools.RunShellTool.checkBlockedCommand("curl https://api.fasfas.ai/v1/models"))
+        assertEquals(null, com.example.tools.RunShellTool.checkBlockedCommand("zip out.zip notes/todo.txt"))
+    }
+
+    @Test
+    fun themeMode_defaultsLegacyDarkToWhiteAndPreservesLightPalettes() {
+        assertEquals(com.example.ui.theme.ThemeMode.WHITE, com.example.ui.theme.ThemeMode.fromStored("DARK"))
+        assertEquals(com.example.ui.theme.ThemeMode.WHITE, com.example.ui.theme.ThemeMode.fromStored("SYSTEM"))
+        assertEquals(com.example.ui.theme.ThemeMode.SAGE, com.example.ui.theme.ThemeMode.fromStored("SAGE"))
+        assertEquals(com.example.ui.theme.ThemeMode.LINEN, com.example.ui.theme.ThemeMode.fromStored("LINEN"))
+        assertEquals(com.example.ui.theme.ThemeMode.SKY, com.example.ui.theme.ThemeMode.fromStored("SKY"))
+        assertEquals(com.example.ui.theme.ThemeMode.LAVENDER, com.example.ui.theme.ThemeMode.fromStored("LAVENDER"))
+    }
 }

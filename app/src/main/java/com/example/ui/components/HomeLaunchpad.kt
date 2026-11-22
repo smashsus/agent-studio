@@ -82,7 +82,10 @@ fun HomeWelcomeSection(
     onOpenModels: () -> Unit,
     onOpenEndpoints: () -> Unit,
     onOpenFiles: () -> Unit,
-    onOpenActivity: () -> Unit
+    onOpenActivity: () -> Unit,
+    swarmEnabled: Boolean = false,
+    swarmAgentCount: Int = 3,
+    onOpenSwarm: () -> Unit = {}
 ) {
     val tokens = LocalSwissTokens.current
 
@@ -207,6 +210,22 @@ fun HomeWelcomeSection(
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = tokens.secondaryAccent,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    Surface(
+                        color = (if (swarmEnabled) tokens.success else tokens.surface2),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenSwarm)
+                            .testTag("home_swarm_badge")
+                    ) {
+                        Text(
+                            text = if (swarmEnabled) "Swarm x$swarmAgentCount Active" else "Swarm Mode",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (swarmEnabled) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (swarmEnabled) androidx.compose.ui.graphics.Color.White else tokens.secondaryText,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }

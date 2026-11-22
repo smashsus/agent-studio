@@ -38,17 +38,19 @@ class MemoryManager(private val db: AppDatabase) {
     suspend fun buildSystemMemoryContext(includeLongTerm: Boolean): String {
         val sb = StringBuilder()
         val taskEntries = getActiveTaskMemories()
+            .distinctBy { "${it.keyName.trim().lowercase()}::${it.content.trim().lowercase()}" }
         if (taskEntries.isNotEmpty()) {
             sb.appendLine("## Active Task Memory")
-            taskEntries.take(10).forEach { entry ->
+            taskEntries.take(8).forEach { entry ->
                 sb.appendLine("- [${entry.category}] ${entry.keyName}: ${entry.content}")
             }
         }
         if (includeLongTerm) {
             val longEntries = getApprovedLongTermMemories()
+                .distinctBy { "${it.keyName.trim().lowercase()}::${it.content.trim().lowercase()}" }
             if (longEntries.isNotEmpty()) {
                 sb.appendLine("## Approved Long-Term Memory")
-                longEntries.take(15).forEach { entry ->
+                longEntries.take(12).forEach { entry ->
                     sb.appendLine("- [${entry.category}] ${entry.keyName}: ${entry.content}")
                 }
             }

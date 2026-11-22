@@ -17,6 +17,7 @@ data class AgentProfile(
     val description: String,
     val category: String = "Workspace",
     val systemPrompt: String,
+    val preferredProviderId: String = "",
     val preferredModelId: String = "",
     val allowedTools: List<String> = emptyList(), // empty = all enabled global tools
     val disableAllTools: Boolean = false,
@@ -120,7 +121,8 @@ class AgentProfileStore(context: Context) {
         preferredModelId: String,
         allowedTools: List<String>,
         disableAllTools: Boolean,
-        activate: Boolean = true
+        activate: Boolean = true,
+        preferredProviderId: String = ""
     ): AgentProfile {
         val cleanName = name.trim().ifBlank { "Custom Agent" }
         val cleanHandle = normalizeHandle(handle.ifBlank { cleanName })
@@ -136,6 +138,7 @@ class AgentProfileStore(context: Context) {
             systemPrompt = systemPrompt.trim().ifBlank {
                 "You are $cleanName ($cleanHandle), a focused autonomous assistant."
             },
+            preferredProviderId = preferredProviderId.trim().ifBlank { existing?.preferredProviderId.orEmpty() },
             preferredModelId = preferredModelId.trim(),
             allowedTools = allowedTools.distinct(),
             disableAllTools = disableAllTools,

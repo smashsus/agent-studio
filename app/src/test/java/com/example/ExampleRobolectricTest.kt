@@ -36,7 +36,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `runShellTool executes commands captures output and enforces guardrails`() = runBlocking {
+  fun `runShellTool executes commands captures output and enforces Agent Studio sandbox`() = runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val fileManager = com.example.tools.WorkspaceFileManager(context)
     val shellTool = com.example.tools.RunShellTool(context, fileManager)
@@ -49,7 +49,7 @@ class ExampleRobolectricTest {
     assertTrue(okRes.success)
     assertTrue(okRes.output.contains("Exit Code: 0"))
     assertTrue(okRes.output.contains("hello_agent_shell"))
-    assertTrue(okRes.output.contains("AgentWorkspace"))
+    assertTrue(okRes.output.contains("Agent Studio"))
 
     val failRes = shellTool.execute(
       buildJsonObject { put("command", "ls definitely_missing_file_xyz") },
@@ -59,13 +59,20 @@ class ExampleRobolectricTest {
     assertTrue(failRes.output.contains("Exit Code:"))
     assertTrue(failRes.output.contains("STDERR"))
 
-    val selinuxNoteRes = shellTool.execute(
-      buildJsonObject { put("command", "pwd; echo 'ls: /system/bin: Permission denied' 1>&2; exit 1") },
+    // Blocking external device directories (/system/bin, /sdcard, ../)
+    val blockedSystemBin = shellTool.execute(
+      buildJsonObject { put("command", "ls /system/bin") },
       settings
     )
-    assertTrue(selinuxNoteRes.success)
-    assertTrue(selinuxNoteRes.output.contains("Exit Code: 1"))
-    assertTrue(selinuxNoteRes.output.contains("Android SELinux Note"))
+    assertFalse(blockedSystemBin.success)
+    assertTrue((blockedSystemBin.error ?: "").contains("blocked", ignoreCase = true))
+
+    val blockedSdcard = shellTool.execute(
+      buildJsonObject { put("command", "ls /sdcard") },
+      settings
+    )
+    assertFalse(blockedSdcard.success)
+    assertTrue((blockedSdcard.error ?: "").contains("blocked", ignoreCase = true))
 
     val rootFile = java.io.File(fileManager.rootDir, "shell_created.txt")
     rootFile.writeText("hello from shell")
@@ -205,5 +212,202 @@ class ExampleRobolectricTest {
     assertEquals("@hunter-pro", updated.handle)
     assertEquals("o4-mini", updated.preferredModelId)
     assertEquals(listOf("run_shell"), updated.allowedTools)
+  }
+
+  @Test
+  fun `workspace file manager resolves created files by bare name and Agent Studio prefix`() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val fileManager = com.example.tools.WorkspaceFileManager(context)
+    val createTool = com.example.tools.CreateFileTool(fileManager)
+    val readTool = com.example.tools.ReadDocumentTool(fileManager)
+    val settings = com.example.settings.AgentSettings()
+
+    val created = createTool.execute(
+      buildJsonObject {
+        put("filename", "Agent Studio/reports/summary.md")
+        put("content", "# Hello Agent Studio\nEverything works.")
+      },
+      settings
+    )
+    assertTrue(created.success)
+
+    // Bare filename lookup (fixes "No file Found in the Directory")
+    val readBare = readTool.execute(
+      buildJsonObject { put("uri_or_path", "summary.md") },
+      settings
+    )
+    assertTrue(readBare.success)
+    assertTrue(readBare.output.contains("Everything works."))
+
+    // Subfolder prefix lookup
+    val readPrefixed = readTool.execute(
+      buildJsonObject { put("uri_or_path", "Agent Studio/reports/summary.md") },
+      settings
+    )
+    assertTrue(readPrefixed.success)
+  }
+
+  @Test
+  fun `zipArchiveTool and shell zip shim compress list and extract safely`() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val fileManager = com.example.tools.WorkspaceFileManager(context)
+    fileManager.writeTextFile("notes", "alpha.txt", "Alpha Payload")
+    val shellTool = com.example.tools.RunShellTool(context, fileManager)
+    val settings = com.example.settings.AgentSettings()
+
+    val zipRes = shellTool.execute(
+      buildJsonObject { put("command", "zip bundle.zip notes/alpha.txt") },
+      settings
+    )
+    assertTrue(zipRes.success)
+    assertTrue(zipRes.output.contains("bundle.zip"))
+
+    val listRes = shellTool.execute(
+      buildJsonObject { put("command", "unzip -l bundle.zip") },
+      settings
+    )
+    assertTrue(listRes.success)
+    assertTrue(listRes.output.contains("alpha.txt"))
+
+    val unzipRes = shellTool.execute(
+      buildJsonObject { put("command", "unzip bundle.zip -d notes/unpacked") },
+      settings
+    )
+    assertTrue(unzipRes.success)
+    val extractedFile = fileManager.resolveExistingWorkspaceFile("notes/unpacked/alpha.txt")
+    assertTrue(extractedFile.exists())
+    assertEquals("Alpha Payload", extractedFile.readText())
+  }
+
+  @Test
+  fun `tokenUsageStore aggregates overall per provider and per model buckets`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val store = com.example.settings.TokenUsageStore(context)
+    store.reset()
+
+    store.recordTurn(
+      com.example.settings.TurnTokenUsage(
+        providerId = "p1",
+        providerName = "Fasfas AI",
+        modelId = "glm-5.3-flash",
+        inputInstructionsTokens = 100,
+        inputMessagesTokens = 40,
+        outputThinkingTokens = 25,
+        outputResponseTokens = 35,
+        isApiReported = true
+      )
+    )
+    store.recordTurn(
+      com.example.settings.TurnTokenUsage(
+        providerId = "p2",
+        providerName = "OpenRouter",
+        modelId = "gpt-4o-mini",
+        inputInstructionsTokens = 80,
+        inputMessagesTokens = 20,
+        outputThinkingTokens = 0,
+        outputResponseTokens = 50,
+        isApiReported = false
+      )
+    )
+
+    val snap = store.snapshot.value
+    assertEquals(2L, snap.overall.requestCount)
+    assertEquals(180L, snap.overall.inputInstructionsTokens)
+    assertEquals(60L, snap.overall.inputMessagesTokens)
+    assertEquals(25L, snap.overall.outputThinkingTokens)
+    assertEquals(85L, snap.overall.outputResponseTokens)
+    assertEquals(350L, snap.overall.totalTokens)
+    assertEquals(2, snap.byProvider.size)
+    assertEquals(2, snap.byModel.size)
+  }
+
+  @Test
+  fun `swarmOrchestrator coordinates drafts critiques and equalizes early`() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val vault = object : com.example.authentication.SecretVault {
+      private val m = mutableMapOf<String, String>()
+      override fun putSecret(key: String, plainText: String) { m[key] = plainText }
+      override fun getSecret(key: String): String? = m[key]
+      override fun hasSecret(key: String): Boolean = m[key]?.isNotBlank() == true
+      override fun removeSecret(key: String) { m.remove(key) }
+      override fun clearAll() { m.clear() }
+    }
+    val db = com.example.database.AppDatabase.getInstance(context)
+    val auth = com.example.authentication.AuthManager(context, vault)
+    val reg = com.example.settings.ProviderRegistryStore(context, vault)
+    reg.clearAll()
+    val p1 = reg.saveOrUpdateProvider(null, "Provider A", "https://api.fasfas.ai/v1", "sk-1", "glm-5.3-flash", listOf("glm-5.3-flash"))
+    val p2 = reg.saveOrUpdateProvider(null, "Provider B", "https://openrouter.ai/api/v1", "sk-2", "gpt-4o-mini", listOf("gpt-4o-mini"))
+    assertEquals(2, reg.providers.value.size)
+
+    val agents = com.example.agent.AgentProfileStore(context)
+    agents.resetToDefaults()
+    val convMgr = com.example.agent.ConversationManager(db)
+    val convId = convMgr.createConversation("Swarm Test")
+    val planner = com.example.execution.TaskPlanner(db)
+    val (planId, _) = planner.createPlanForRequest(convId, "Design architecture")
+    val tokenStore = com.example.settings.TokenUsageStore(context)
+    tokenStore.reset()
+
+    var callsCount = 0
+    val fakeOrchestrator = com.example.agent.SwarmOrchestrator(
+      authManager = auth,
+      providerRegistryStore = reg,
+      agentProfileStore = agents,
+      conversationManager = convMgr,
+      taskPlanner = planner,
+      toolRegistry = com.example.tools.ToolRegistry(emptyList()),
+      toolExecutor = com.example.tools.ToolExecutor(com.example.tools.ToolRegistry(emptyList())),
+      permissionManager = com.example.permissions.PermissionManager(context),
+      memoryManager = com.example.memory.MemoryManager(db),
+      executionMonitor = com.example.execution.ExecutionMonitor(),
+      errorRecoveryManager = com.example.execution.ErrorRecoveryManager(),
+      tokenUsageStore = tokenStore,
+      modelInvoker = { req ->
+        callsCount++
+        val text = when {
+          req.systemPrompt.contains("Swarm Equalizer") -> "Unified Equalized Final Plan"
+          req.systemPrompt.contains("Cross-check") -> "Peer drafts verified.\nCONVERGED: YES"
+          else -> "Proposal from ${req.providerName}"
+        }
+        com.example.model.ModelResponse.TextResponse(
+          content = text,
+          tokenUsage = com.example.settings.TurnTokenUsage(
+            providerId = req.providerId ?: "p1",
+            providerName = req.providerName ?: "Provider",
+            modelId = req.settings.modelId,
+            inputInstructionsTokens = 40,
+            inputMessagesTokens = 20,
+            outputThinkingTokens = 10,
+            outputResponseTokens = 25,
+            isApiReported = true
+          )
+        )
+      }
+    )
+
+    val cfg = com.example.agent.SwarmConfig(
+      enabled = true,
+      maxCritiqueRounds = 3,
+      members = listOf(
+        com.example.agent.SwarmMemberSlot("s1", "build", p1.id, "glm-5.3-flash", "Planner"),
+        com.example.agent.SwarmMemberSlot("s2", "code", p2.id, "gpt-4o-mini", "Auditor")
+      )
+    )
+    val ok = fakeOrchestrator.runSwarmMission(
+      conversationId = convId,
+      planId = planId,
+      userPrompt = "Compare microservices vs modular monolith",
+      cleanHistory = emptyList(),
+      baseSettings = com.example.settings.AgentSettings(modelId = "glm-5.3-flash"),
+      swarmConfig = cfg
+    )
+    assertTrue(ok)
+    // 2 drafts + 2 round-1 critiques (stopped early!) + 1 equalizer = 5 calls (not 2 + 6 + 1 = 9)
+    assertEquals(5, callsCount)
+    val msgs = convMgr.getMessagesSnapshot(convId)
+    assertTrue(msgs.any { it.content.contains("Unified Equalized Final Plan") })
+    assertEquals(5L, tokenStore.snapshot.value.overall.requestCount)
+    assertEquals(2, tokenStore.snapshot.value.byProvider.size)
   }
 }

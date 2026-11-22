@@ -1,6 +1,7 @@
 package com.example.model
 
 import com.example.settings.AgentSettings
+import com.example.settings.TurnTokenUsage
 import com.example.tools.ToolCallRequest
 import kotlinx.serialization.json.JsonArray
 
@@ -21,18 +22,24 @@ data class ModelRequest(
     val stepIndex: Int,
     val isFirstTurn: Boolean,
     val webBridgeReply: String? = null,
-    val runLocalToolchainDirect: Boolean = false
+    val runLocalToolchainDirect: Boolean = false,
+    val providerId: String? = null,
+    val providerName: String? = null,
+    val providerBaseUrlOverride: String? = null,
+    val providerApiKeyOverride: String? = null
 )
 
 sealed interface ModelResponse {
     data class TextResponse(
         val content: String,
-        val reasoningSummary: String? = null
+        val reasoningSummary: String? = null,
+        val tokenUsage: TurnTokenUsage? = null
     ) : ModelResponse
 
     data class ToolCallsResponse(
         val calls: List<ToolCallRequest>,
-        val assistantThought: String? = null
+        val assistantThought: String? = null,
+        val tokenUsage: TurnTokenUsage? = null
     ) : ModelResponse
 
     data class AwaitingWebBridge(

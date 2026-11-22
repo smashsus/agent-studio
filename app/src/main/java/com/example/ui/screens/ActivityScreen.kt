@@ -21,11 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -45,9 +40,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.CheckCircle
+import com.adamglin.phosphoricons.fill.Stop
+import com.adamglin.phosphoricons.regular.ClockCounterClockwise
+import com.adamglin.phosphoricons.regular.Copy
 import com.example.database.ExecutionLogEntity
 import com.example.database.SubtaskEntity
-import com.example.execution.AgentPhase
 import com.example.ui.MainViewModel
 import com.example.ui.components.SwissBadge
 import com.example.ui.components.SwissDivider
@@ -102,9 +103,10 @@ fun ActivityScreen(
                         modifier = Modifier.size(SwissGeometry.minTouchTarget)
                     ) {
                         Icon(
-                            Icons.Default.Stop,
+                            PhosphorIcons.Fill.Stop,
                             contentDescription = "Stop Execution",
-                            tint = tokens.error
+                            tint = tokens.error,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -132,13 +134,22 @@ fun ActivityScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf("ALL" to "All", "SUCCESS" to "Success", "RUNNING" to "Running", "FAILED" to "Failed", "DENIED" to "Denied").forEach { (key, label) ->
+                        val selected = statusFilter == key
                         FilterChip(
-                            selected = statusFilter == key,
+                            selected = selected,
                             onClick = { statusFilter = key },
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                            shape = RoundedCornerShape(10.dp),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = tokens.surface2,
+                                containerColor = tokens.surface2,
+                                selectedContainerColor = tokens.primaryAccent.copy(alpha = 0.14f),
                                 selectedLabelColor = tokens.primaryAccent
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                borderColor = tokens.border.copy(alpha = 0.45f),
+                                selectedBorderColor = tokens.primaryAccent.copy(alpha = 0.5f)
                             )
                         )
                     }
@@ -175,7 +186,7 @@ fun ActivityScreen(
             if (filteredLogs.isEmpty()) {
                 item {
                     SwissEmptyState(
-                        icon = Icons.Default.History,
+                        icon = PhosphorIcons.Regular.ClockCounterClockwise,
                         title = "No execution events",
                         description = "Tool invocations, retries, durations, and status outcomes appear here as tasks run."
                     )
@@ -213,7 +224,7 @@ private fun SubtaskActivityRow(subtask: SubtaskEntity) {
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Icon(
-            imageVector = Icons.Default.CheckCircle,
+            imageVector = PhosphorIcons.Fill.CheckCircle,
             contentDescription = subtask.status,
             tint = statusColor,
             modifier = Modifier.size(16.dp)
@@ -259,13 +270,15 @@ private fun CompactExecutionLogRow(
 
     Surface(
         color = tokens.surface1,
-        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
-        border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+        shape = RoundedCornerShape(SwissGeometry.radiusCard),
+        border = BorderStroke(SwissGeometry.borderWidth, tokens.border.copy(alpha = 0.55f)),
+        tonalElevation = 1.dp,
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(SwissGeometry.radiusCard))
             .clickable { expanded = !expanded }
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(modifier = Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -349,7 +362,7 @@ private fun CompactExecutionLogRow(
                     }
                     IconButton(onClick = onCopy, modifier = Modifier.size(36.dp).align(Alignment.End)) {
                         Icon(
-                            Icons.Default.ContentCopy,
+                            PhosphorIcons.Regular.Copy,
                             contentDescription = "Copy execution trace",
                             tint = tokens.secondaryText,
                             modifier = Modifier.size(16.dp)

@@ -46,6 +46,12 @@ class OpenAiCompatibleModelProvider(
                 authManager.getSavedApiBaseUrl()
             }
             val baseUrl = normalizeBaseUrl(rawBase)
+            if (baseUrl.isBlank()) {
+                return@withContext ModelResponse.ErrorResponse(
+                    "Endpoint Base URL is not configured. Open Account & Endpoints to set an HTTPS Base URL.",
+                    retryable = false
+                )
+            }
             if (!baseUrl.startsWith("https://")) {
                 return@withContext ModelResponse.ErrorResponse(
                     "Insecure base URL rejected; HTTPS is required.",
@@ -53,10 +59,18 @@ class OpenAiCompatibleModelProvider(
                 )
             }
 
+            val modelId = request.settings.modelId.trim()
+            if (modelId.isEmpty()) {
+                return@withContext ModelResponse.ErrorResponse(
+                    "Model ID is not configured. Enter a Model ID in Account & Endpoints or Settings.",
+                    retryable = false
+                )
+            }
+
             val payload = buildJsonObject {
-                put("model", request.settings.modelId.trim())
+                put("model", modelId)
                 put("messages", buildMessagesArray(request.systemPrompt, request.messages))
-                if (request.toolsSchemaJson.isNotEmpty() && !request.settings.modelId.contains("reasoner", true)) {
+                if (request.toolsSchemaJson.isNotEmpty() && !modelId.contains("reasoner", true)) {
                     put("tools", request.toolsSchemaJson)
                     put("tool_choice", "auto")
                 }
@@ -150,12 +164,12 @@ class OpenAiCompatibleModelProvider(
     }
 
     companion object {
-        const val USER_AGENT = "AgentHarness-Android/1.0"
+        const val USER_AGENT = "AgentStudio-Android/1.0"
         private val json = Json { ignoreUnknownKeys = true }
 
         fun normalizeBaseUrl(rawUrl: String): String {
             var url = rawUrl.trim().trimEnd('/')
-            if (url.isEmpty()) return "https://api.deepseek.com"
+            if (url.isEmpty()) return ""
             val suffixes = listOf("/chat/completions", "/responses", "/messages", "/models")
             for (suffix in suffixes) {
                 if (url.endsWith(suffix, ignoreCase = true)) {
@@ -219,7 +233,7 @@ class OpenAiCompatibleModelProvider(
                 }
 
                 // Fallback: check if model emitted JSON tool_call block inside content
-                val embeddedCalls = DeepSeekWebBridgeProvider.parseEmbeddedToolCalls(content)
+                val embeddedCalls = WebBridgeProvider.parseEmbeddedToolCalls(content)
                 if (embeddedCalls.isNotEmpty()) {
                     return ModelResponse.ToolCallsResponse(
                         calls = embeddedCalls,

@@ -20,16 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccessibilityNew
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -52,6 +42,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.Bell
+import com.adamglin.phosphoricons.regular.Brain
+import com.adamglin.phosphoricons.regular.Gauge
+import com.adamglin.phosphoricons.regular.HandTap
+import com.adamglin.phosphoricons.regular.Palette
+import com.adamglin.phosphoricons.regular.ShieldCheck
+import com.adamglin.phosphoricons.regular.SlidersHorizontal
+import com.adamglin.phosphoricons.regular.Trash
+import com.adamglin.phosphoricons.regular.Wrench
 import com.example.settings.AutonomyLevel
 import com.example.ui.MainViewModel
 import com.example.ui.components.SwissDivider
@@ -114,16 +115,17 @@ fun SettingsScreen(
                 SwissSectionHeader(title = "Model & Endpoint")
                 SwissSurfaceCard {
                     SwissSettingRow(
-                        icon = Icons.Default.Tune,
+                        icon = PhosphorIcons.Regular.SlidersHorizontal,
                         title = "Active Model",
                         description = "Used for compatible API endpoints",
-                        currentValue = settings.modelId
+                        currentValue = settings.modelId.ifBlank { "Not configured" }
                     )
                     OutlinedTextField(
                         value = modelIdInput,
                         onValueChange = { modelIdInput = it },
                         label = { Text("Model ID") },
                         singleLine = true,
+                        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
@@ -131,6 +133,7 @@ fun SettingsScreen(
                         onValueChange = { baseUrlInput = it },
                         label = { Text("HTTPS Base URL") },
                         singleLine = true,
+                        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
                         modifier = Modifier.fillMaxWidth()
                     )
                     SwissPrimaryButton(
@@ -175,7 +178,7 @@ fun SettingsScreen(
                 SwissSectionHeader(title = "Execution Limits")
                 SwissSurfaceCard {
                     SwissSettingRow(
-                        icon = Icons.Default.Speed,
+                        icon = PhosphorIcons.Regular.Gauge,
                         title = "Loop & Retry Bounds",
                         currentValue = "${maxStepsSlider.roundToInt()} steps · ${retrySlider.roundToInt()} retries · ${timeoutSlider.roundToInt()}s timeout"
                     )
@@ -214,7 +217,7 @@ fun SettingsScreen(
                 SwissSectionHeader(title = "Network & Permissions")
                 SwissSurfaceCard(padding = PaddingValues(0.dp)) {
                     SwissSettingRow(
-                        icon = Icons.Default.Security,
+                        icon = PhosphorIcons.Regular.ShieldCheck,
                         title = "Restrict Network Destinations",
                         description = "Limit research tools to approved HTTPS domains",
                         currentValue = if (settings.restrictNetworkDomains) "Allowlist active" else "All HTTPS permitted",
@@ -234,6 +237,7 @@ fun SettingsScreen(
                                 value = domainsInput,
                                 onValueChange = { domainsInput = it },
                                 label = { Text("Allowed Domains (comma-separated)") },
+                                shape = RoundedCornerShape(SwissGeometry.radiusSmall),
                                 modifier = Modifier.fillMaxWidth()
                             )
                             SwissOutlinedButton(
@@ -245,7 +249,7 @@ fun SettingsScreen(
                     }
                     SwissDivider()
                     SwissSettingRow(
-                        icon = Icons.Default.Notifications,
+                        icon = PhosphorIcons.Regular.Bell,
                         title = "Notifications & Reminders",
                         description = "Used for background tasks and scheduled reminders",
                         currentValue = if (notifGranted) "Granted" else "Permission required",
@@ -267,7 +271,7 @@ fun SettingsScreen(
                 SwissSectionHeader(title = "Accessibility Automation")
                 SwissSurfaceCard(padding = PaddingValues(0.dp)) {
                     SwissSettingRow(
-                        icon = Icons.Default.AccessibilityNew,
+                        icon = PhosphorIcons.Regular.HandTap,
                         title = "On-Demand Screen Interaction",
                         description = "Explicit consent required; reads non-password text only when requested",
                         currentValue = if (a11yConnected) "System service connected" else "System service inactive",
@@ -281,7 +285,7 @@ fun SettingsScreen(
                     )
                     SwissDivider()
                     SwissSettingRow(
-                        icon = Icons.Default.Tune,
+                        icon = PhosphorIcons.Regular.SlidersHorizontal,
                         title = "Android Accessibility Settings",
                         description = "Enable or disable the system service",
                         onClick = {
@@ -313,7 +317,7 @@ fun SettingsScreen(
                 SwissSectionHeader(title = "Memory & Appearance")
                 SwissSurfaceCard(padding = PaddingValues(0.dp)) {
                     SwissSettingRow(
-                        icon = Icons.Default.Memory,
+                        icon = PhosphorIcons.Regular.Brain,
                         title = "Inject Long-Term Memory",
                         description = "Include approved facts in agent context",
                         trailing = {
@@ -325,7 +329,7 @@ fun SettingsScreen(
                     )
                     SwissDivider()
                     SwissSettingRow(
-                        icon = Icons.Default.Memory,
+                        icon = PhosphorIcons.Regular.Brain,
                         title = "Auto-Save Task Summaries",
                         description = "Store completed mission outcomes in Task Memory",
                         trailing = {
@@ -337,7 +341,7 @@ fun SettingsScreen(
                     )
                     SwissDivider()
                     SwissSettingRow(
-                        icon = Icons.Default.Palette,
+                        icon = PhosphorIcons.Regular.Palette,
                         title = "Theme",
                         currentValue = settings.themeMode.label
                     )
@@ -349,13 +353,22 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         ThemeMode.entries.forEach { mode ->
+                            val selected = settings.themeMode == mode
                             FilterChip(
-                                selected = settings.themeMode == mode,
+                                selected = selected,
                                 onClick = { viewModel.setThemeMode(mode) },
                                 label = { Text(mode.label, style = MaterialTheme.typography.labelSmall) },
+                                shape = RoundedCornerShape(10.dp),
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = tokens.surface2,
+                                    containerColor = tokens.surface2,
+                                    selectedContainerColor = tokens.primaryAccent.copy(alpha = 0.14f),
                                     selectedLabelColor = tokens.primaryAccent
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = selected,
+                                    borderColor = tokens.border.copy(alpha = 0.45f),
+                                    selectedBorderColor = tokens.primaryAccent.copy(alpha = 0.5f)
                                 )
                             )
                         }
@@ -375,7 +388,7 @@ fun SettingsScreen(
                 val enabled = tool.name !in settings.disabledTools
                 SwissSurfaceCard(padding = PaddingValues(0.dp)) {
                     SwissSettingRow(
-                        icon = Icons.Default.Build,
+                        icon = PhosphorIcons.Regular.Wrench,
                         title = tool.name,
                         description = tool.description,
                         currentValue = "${tool.category} · ${tool.riskLevel.label}",
@@ -394,7 +407,7 @@ fun SettingsScreen(
                 SwissSectionHeader(title = "Data Management")
                 SwissSurfaceCard(padding = PaddingValues(0.dp)) {
                     SwissSettingRow(
-                        icon = Icons.Default.DeleteForever,
+                        icon = PhosphorIcons.Regular.Trash,
                         title = "Clear Local History & Memory",
                         description = "Removes threads, task plans, logs, and stored memories",
                         trailing = {

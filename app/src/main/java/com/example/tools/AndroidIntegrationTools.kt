@@ -83,8 +83,16 @@ class OpenAppTool(private val context: Context) : AgentTool {
             val directIntent = pm.getLaunchIntentForPackage(query)
             if (directIntent != null) {
                 directIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(directIntent)
-                return@withContext ToolResult(true, "Launched package: $query")
+                val launched = runCatching { context.startActivity(directIntent) }
+                if (launched.isSuccess) {
+                    return@withContext ToolResult(true, "Launched package: $query")
+                } else {
+                    return@withContext ToolResult(
+                        false,
+                        "",
+                        error = "Failed to launch '$query': ${launched.exceptionOrNull()?.message ?: "Activity error"}"
+                    )
+                }
             }
 
             val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
@@ -159,7 +167,7 @@ class ShareContentTool(
                         putExtra(Intent.EXTRA_TEXT, text)
                     }
                 }
-                val chooser = Intent.createChooser(intent, "Share via DeepSeek Agent").apply {
+                val chooser = Intent.createChooser(intent, "Share via Agent Studio").apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(chooser)
@@ -195,7 +203,7 @@ class ClipboardTool(private val context: Context) : AgentTool {
                     val text = args["text"]?.jsonPrimitive?.contentOrNull
                         ?: return@withContext ToolResult(false, "", error = "Missing text for clipboard write.")
                     val sensitive = args["sensitive"]?.jsonPrimitive?.booleanOrNull ?: false
-                    val clip = ClipData.newPlainText("DeepSeek Agent", text)
+                    val clip = ClipData.newPlainText("Agent Output", text)
                     if (sensitive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         clip.description.extras = PersistableBundle().apply {
                             putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
@@ -250,7 +258,8 @@ class NotificationTool(
                 error = "POST_NOTIFICATIONS permission not granted. Grant notification access in Settings or workspace banner."
             )
         }
-        val title = args["title"]?.jsonPrimitive?.contentOrNull?.trim() ?: "DeepSeek Agent"
+        val defaultTitle = settings.modelId.trim().ifBlank { "Agent Studio" }
+        val title = args["title"]?.jsonPrimitive?.contentOrNull?.trim() ?: defaultTitle
         val message = args["message"]?.jsonPrimitive?.contentOrNull?.trim() ?: "Task reminder"
         val delaySec = args["delay_seconds"]?.jsonPrimitive?.intOrNull ?: 0
 
@@ -286,7 +295,7 @@ class NotificationTool(
     }
 
     companion object {
-        const val AGENT_CHANNEL_ID = "deepseek_agent_tasks"
+        const val AGENT_CHANNEL_ID = "agent_studio_tasks"
 
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -304,7 +313,7 @@ class NotificationTool(
     }
 }
 
-class AccessibilityTool : AgentTool {
+class AccessibilityTool(private val context: Context) : AgentTool {
     override val definition = ToolDefinition(
         name = "accessibility_interact",
         category = "Android Integration",
@@ -317,47 +326,21 @@ class AccessibilityTool : AgentTool {
     )
 
     override suspend fun execute(args: JsonObject, settings: AgentSettings): ToolResult {
-        val service = AgentAccessibilityService.instance
-            ?: return ToolResult(
-                false,
-                "",
-                error = "Accessibility service is not connected. Enable DeepSeek Agent in Android Accessibility Settings."
-            )
-
         val action = args["action"]?.jsonPrimitive?.contentOrNull?.lowercase()?.trim()
             ?: return ToolResult(false, "", error = "Missing action argument.")
+        val target = args["target_text"]?.jsonPrimitive?.contentOrNull?.trim()
 
-        return withContext(Dispatchers.Main) {
-            when (action) {
-                "read_screen" -> {
-                    val summary = service.readVisibleScreenSummary()
-                    ToolResult(true, "Visible Screen Content:\n$summary")
-                }
-                "click_text" -> {
-                    val target = args["target_text"]?.jsonPrimitive?.contentOrNull?.trim()
-                        ?: return@withContext ToolResult(false, "", error = "Missing target_text for click_text.")
-                    val clicked = service.clickNodeByText(target)
-                    if (clicked) {
-                        ToolResult(true, "Triggered Accessibility click on '$target'.")
-                    } else {
-                        ToolResult(false, "", error = "No clickable element matching '$target' found.")
-                    }
-                }
-                "scroll_forward" -> {
-                    val scrolled = service.scrollForward()
-                    if (scrolled) ToolResult(true, "Scrolled forward.")
-                    else ToolResult(false, "", error = "No scrollable container found on screen.")
-                }
-                "back" -> {
-                    val ok = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
-                    ToolResult(ok, if (ok) "Performed global Back." else "Failed global Back.")
-                }
-                "home" -> {
-                    val ok = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
-                    ToolResult(ok, if (ok) "Performed global Home." else "Failed global Home.")
-                }
-                else -> ToolResult(false, "", error = "Unknown accessibility action '$action'.")
-            }
+        return withContext(Dispatchers.IO) {
+            val (ok, output, error) = AgentAccessibilityService.executeRemoteAction(
+                context = context,
+                action = action,
+                targetText = target
+            )
+            ToolResult(
+                success = ok,
+                output = output,
+                error = error
+            )
         }
     }
 }

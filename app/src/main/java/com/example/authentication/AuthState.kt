@@ -2,16 +2,16 @@ package com.example.authentication
 
 enum class ProviderMode(val displayName: String, val priorityLabel: String) {
     WEB_SESSION(
-        displayName = "Official DeepSeek Web Session",
-        priorityLabel = "Priority 1 • Account Session"
+        displayName = "Embedded Web Session",
+        priorityLabel = "Browser Session"
     ),
     OFFICIAL_API(
-        displayName = "Official DeepSeek API",
-        priorityLabel = "Priority 2 • Optional Fallback"
+        displayName = "API Endpoint",
+        priorityLabel = "Configured API"
     ),
     COMPATIBLE_API(
-        displayName = "Compatible Model Endpoint",
-        priorityLabel = "Custom Provider"
+        displayName = "Compatible API Endpoint",
+        priorityLabel = "OpenAI-Compatible"
     )
 }
 

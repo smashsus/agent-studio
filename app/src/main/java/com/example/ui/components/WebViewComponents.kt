@@ -16,20 +16,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -37,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,18 +43,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.authentication.AuthManager
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.ArrowLeft
+import com.adamglin.phosphoricons.regular.ArrowSquareOut
+import com.adamglin.phosphoricons.regular.ArrowsClockwise
+import com.adamglin.phosphoricons.regular.CheckCircle
+import com.adamglin.phosphoricons.regular.ClipboardText
+import com.adamglin.phosphoricons.regular.X
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
 
 @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 @Composable
-fun DeepSeekOfficialWebView(
+fun EmbeddedWebSessionView(
+    initialUrl: String,
     pendingBridgePrompt: String?,
     onPageFinished: (url: String?, title: String?) -> Unit,
     onConfirmConnected: () -> Unit,
     onCopyBridgePrompt: (String) -> Unit,
-    initialUrl: String = AuthManager.DEEPSEEK_WEB_URL,
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -72,11 +71,21 @@ fun DeepSeekOfficialWebView(
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var loadProgress by remember { mutableIntStateOf(0) }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.apply {
+                stopLoading()
+                destroy()
+            }
+            webViewRef = null
+        }
+    }
+
     Surface(
         modifier = modifier,
         color = tokens.surface1,
-        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
-        border = BorderStroke(SwissGeometry.borderWidth, tokens.border)
+        shape = RoundedCornerShape(SwissGeometry.radiusCard),
+        border = BorderStroke(SwissGeometry.borderWidth, tokens.border.copy(alpha = 0.6f))
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -94,9 +103,10 @@ fun DeepSeekOfficialWebView(
                             .testTag("webview_back_button")
                     ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            PhosphorIcons.Regular.ArrowLeft,
                             contentDescription = "Back",
-                            tint = tokens.primaryText
+                            tint = tokens.primaryText,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                     IconButton(
@@ -106,9 +116,10 @@ fun DeepSeekOfficialWebView(
                             .testTag("webview_reload_button")
                     ) {
                         Icon(
-                            Icons.Default.Refresh,
+                            PhosphorIcons.Regular.ArrowsClockwise,
                             contentDescription = "Reload",
-                            tint = tokens.primaryText
+                            tint = tokens.primaryText,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                     Text(
@@ -128,7 +139,7 @@ fun DeepSeekOfficialWebView(
                         SwissOutlinedButton(
                             text = "Copy Prompt",
                             onClick = { onCopyBridgePrompt(pendingBridgePrompt) },
-                            icon = Icons.Default.ContentPaste,
+                            icon = PhosphorIcons.Regular.ClipboardText,
                             modifier = Modifier.testTag("webview_copy_prompt_button")
                         )
                     }
@@ -143,9 +154,10 @@ fun DeepSeekOfficialWebView(
                         modifier = Modifier.size(SwissGeometry.minTouchTarget)
                     ) {
                         Icon(
-                            Icons.Default.OpenInBrowser,
+                            PhosphorIcons.Regular.ArrowSquareOut,
                             contentDescription = "Open in External Browser",
-                            tint = tokens.secondaryText
+                            tint = tokens.secondaryText,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
                     if (onClose != null) {
@@ -154,9 +166,10 @@ fun DeepSeekOfficialWebView(
                             modifier = Modifier.size(SwissGeometry.minTouchTarget)
                         ) {
                             Icon(
-                                Icons.Default.Close,
+                                PhosphorIcons.Regular.X,
                                 contentDescription = "Close Browser",
-                                tint = tokens.primaryText
+                                tint = tokens.primaryText,
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
@@ -194,7 +207,6 @@ fun DeepSeekOfficialWebView(
                                 allowFileAccess = false
                                 allowContentAccess = false
                                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                // Strip Android WebView '; wv' marker so modern web apps render reliably
                                 val baseUa = userAgentString ?: ""
                                 userAgentString = baseUa.replace("; wv)", ")").replace("Version/4.0 ", "")
                             }
@@ -284,7 +296,7 @@ fun DeepSeekOfficialWebView(
                 SwissPrimaryButton(
                     text = "Confirm Session",
                     onClick = onConfirmConnected,
-                    icon = Icons.Default.CheckCircle,
+                    icon = PhosphorIcons.Regular.CheckCircle,
                     modifier = Modifier.testTag("confirm_web_session_button")
                 )
             }
@@ -300,6 +312,18 @@ fun HtmlSandboxPreviewDialog(
     onDismiss: () -> Unit
 ) {
     val tokens = LocalSwissTokens.current
+    var previewWebViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            previewWebViewRef?.apply {
+                stopLoading()
+                destroy()
+            }
+            previewWebViewRef = null
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -310,7 +334,7 @@ fun HtmlSandboxPreviewDialog(
                 .padding(12.dp),
             shape = RoundedCornerShape(SwissGeometry.radiusDialog),
             color = tokens.surface1,
-            border = BorderStroke(SwissGeometry.borderWidth, tokens.border)
+            border = BorderStroke(SwissGeometry.borderWidth, tokens.border.copy(alpha = 0.6f))
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
@@ -340,7 +364,12 @@ fun HtmlSandboxPreviewDialog(
                             .size(SwissGeometry.minTouchTarget)
                             .testTag("close_html_preview_button")
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close Preview", tint = tokens.primaryText)
+                        Icon(
+                            PhosphorIcons.Regular.X,
+                            contentDescription = "Close Preview",
+                            tint = tokens.primaryText,
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 }
                 SwissDivider()
@@ -368,6 +397,7 @@ fun HtmlSandboxPreviewDialog(
                             }
                             webChromeClient = WebChromeClient()
                             loadDataWithBaseURL("https://sandbox.local/", htmlContent, "text/html", "UTF-8", null)
+                            previewWebViewRef = this
                         }
                     },
                     modifier = Modifier

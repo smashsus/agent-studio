@@ -10,18 +10,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 /**
- * Manages DeepSeek user-account authentication:
- * Priority 1: Official DeepSeek Web Session (embedded chat.deepseek.com WebView).
- * Priority 2: Optional Official DeepSeek API / Compatible endpoint key encrypted in KeystoreVault.
+ * Manages provider-neutral authentication and endpoint configuration:
+ * - Embedded Web Session: user-chosen HTTPS web portal inside an isolated WebView.
+ * - API Endpoint: any OpenAI-compatible HTTPS base URL + Bearer API key encrypted in KeystoreVault.
  *
  * Security & policy invariants:
  * - Never collects or stores user passwords.
- * - Never extracts session cookies from other apps or reverse-engineers private web endpoints.
- * - Never pretends web login grants programmatic API access.
- * - Never exposes credentials to the model prompt or tool execution layer.
+ * - Never extracts session cookies from other apps or scrapes private web endpoints.
+ * - Never exposes credentials to the model prompt, logs, or tool execution layer.
  */
 class AuthManager(
     context: Context,
@@ -41,9 +41,9 @@ class AuthManager(
     }
 
     private fun loadPreferredMode(): ProviderMode {
-        val raw = prefs.getString(KEY_PREFERRED_MODE, ProviderMode.WEB_SESSION.name)
-        return runCatching { ProviderMode.valueOf(raw ?: ProviderMode.WEB_SESSION.name) }
-            .getOrDefault(ProviderMode.WEB_SESSION)
+        val raw = prefs.getString(KEY_PREFERRED_MODE, ProviderMode.COMPATIBLE_API.name)
+        return runCatching { ProviderMode.valueOf(raw ?: ProviderMode.COMPATIBLE_API.name) }
+            .getOrDefault(ProviderMode.COMPATIBLE_API)
     }
 
     fun selectProviderMode(mode: ProviderMode) {
@@ -52,44 +52,58 @@ class AuthManager(
         refreshSessionState()
     }
 
-    fun beginWebAuthentication() {
+    fun beginWebAuthentication(portalUrl: String? = null) {
+        val cleanUrl = portalUrl?.trim()?.takeIf { it.startsWith("https://") }
+        if (cleanUrl != null) {
+            prefs.edit().putString(KEY_WEB_PORTAL_URL, cleanUrl).apply()
+        }
+        val host = cleanUrl?.let { extractHost(it) } ?: "your web portal"
         _authState.value = AuthState.Authenticating(
             mode = ProviderMode.WEB_SESSION,
-            message = "Sign in on official chat.deepseek.com inside the embedded browser."
+            message = "Sign in on $host inside the embedded browser."
         )
     }
 
     /**
-     * Called when the embedded WebView finishes navigating on chat.deepseek.com.
-     * Observes domain session presence via Android CookieManager without exposing cookie values.
+     * Called when the embedded WebView finishes navigating to any HTTPS web portal.
+     * Observes domain cookie presence via Android CookieManager without exposing cookie values.
      */
     fun updateWebSessionFromEmbeddedBrowser(currentUrl: String?, pageTitle: String?) {
-        val url = currentUrl ?: return
-        if (!url.startsWith(DEEPSEEK_WEB_ORIGIN)) return
+        val url = currentUrl?.trim() ?: return
+        if (!url.startsWith("https://")) return
+        val uri = runCatching { URI(url) }.getOrNull() ?: return
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return
+        val origin = "https://$host"
 
         val hasSessionCookies = runCatching {
-            val cookieStr = CookieManager.getInstance().getCookie(DEEPSEEK_WEB_ORIGIN)
+            val cookieStr = CookieManager.getInstance().getCookie(origin)
             !cookieStr.isNullOrBlank() && cookieStr.contains("=")
         }.getOrDefault(false)
 
         val isLoginRoute = url.contains("/sign_in", ignoreCase = true) ||
-            url.contains("/login", ignoreCase = true)
+            url.contains("/signin", ignoreCase = true) ||
+            url.contains("/login", ignoreCase = true) ||
+            url.contains("/auth", ignoreCase = true)
 
         if (!isLoginRoute && hasSessionCookies) {
             val now = System.currentTimeMillis()
             val expires = now + WEB_SESSION_WINDOW_MS
-            val label = pageTitle?.takeIf { it.isNotBlank() && !it.contains("Sign", true) }
-                ?: "DeepSeek Web Account"
+            val label = pageTitle?.takeIf {
+                it.isNotBlank() &&
+                    !it.contains("Sign in", true) &&
+                    !it.contains("Log in", true)
+            } ?: host
             prefs.edit()
                 .putBoolean(KEY_WEB_CONNECTED, true)
                 .putString(KEY_WEB_LABEL, label)
+                .putString(KEY_WEB_PORTAL_URL, url)
                 .putLong(KEY_WEB_CONNECTED_AT, now)
                 .putLong(KEY_WEB_EXPIRES_AT, expires)
                 .apply()
             if (_preferredMode.value == ProviderMode.WEB_SESSION) {
                 _authState.value = AuthState.Authenticated(
                     mode = ProviderMode.WEB_SESSION,
-                    accountLabel = "DeepSeek Web Session ($label)",
+                    accountLabel = "Web Session ($host)",
                     connectedAt = now,
                     expiresAt = expires,
                     grantsProgrammaticApi = false
@@ -98,20 +112,32 @@ class AuthManager(
         }
     }
 
-    fun markWebSessionConfirmedByUser(accountHint: String = "DeepSeek Account") {
+    fun markWebSessionConfirmedByUser(
+        accountHint: String? = null,
+        portalUrl: String? = null
+    ) {
+        val cleanUrl = portalUrl?.trim()?.takeIf { it.startsWith("https://") }
+        if (cleanUrl != null) {
+            prefs.edit().putString(KEY_WEB_PORTAL_URL, cleanUrl).apply()
+        }
+        val host = (cleanUrl ?: getSavedWebPortalUrl()).takeIf { it.isNotBlank() }?.let { extractHost(it) }
+        val resolvedLabel = accountHint?.takeIf { it.isNotBlank() }
+            ?: host?.let { "Web Session ($it)" }
+            ?: "Embedded Web Session"
+
         val now = System.currentTimeMillis()
         val expires = now + WEB_SESSION_WINDOW_MS
         prefs.edit()
             .putBoolean(KEY_WEB_CONNECTED, true)
-            .putString(KEY_WEB_LABEL, accountHint)
+            .putString(KEY_WEB_LABEL, resolvedLabel)
             .putLong(KEY_WEB_CONNECTED_AT, now)
             .putLong(KEY_WEB_EXPIRES_AT, expires)
+            .putString(KEY_PREFERRED_MODE, ProviderMode.WEB_SESSION.name)
             .apply()
         _preferredMode.value = ProviderMode.WEB_SESSION
-        prefs.edit().putString(KEY_PREFERRED_MODE, ProviderMode.WEB_SESSION.name).apply()
         _authState.value = AuthState.Authenticated(
             mode = ProviderMode.WEB_SESSION,
-            accountLabel = accountHint,
+            accountLabel = resolvedLabel,
             connectedAt = now,
             expiresAt = expires,
             grantsProgrammaticApi = false
@@ -119,7 +145,7 @@ class AuthManager(
     }
 
     fun expireSessionForReauth() {
-        val label = prefs.getString(KEY_WEB_LABEL, "DeepSeek Account") ?: "DeepSeek Account"
+        val label = prefs.getString(KEY_WEB_LABEL, "Web Session") ?: "Web Session"
         prefs.edit().putBoolean(KEY_WEB_CONNECTED, false).apply()
         _authState.value = AuthState.SessionExpired(
             lastAccountLabel = label,
@@ -130,9 +156,9 @@ class AuthManager(
     suspend fun saveAndVerifyApiFallback(
         apiKey: String,
         baseUrl: String,
-        isCustomCompatible: Boolean
+        @Suppress("UNUSED_PARAMETER") isCustomCompatible: Boolean = true
     ): Result<String> = withContext(Dispatchers.IO) {
-        val mode = if (isCustomCompatible) ProviderMode.COMPATIBLE_API else ProviderMode.OFFICIAL_API
+        val mode = ProviderMode.COMPATIBLE_API
         val effectiveKey = apiKey.trim().ifBlank { vault.getSecret(VAULT_API_KEY).orEmpty() }
         val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
         if (effectiveKey.isBlank()) {
@@ -161,6 +187,7 @@ class AuthManager(
             .get()
             .build()
 
+        val displayHost = extractHost(cleanBase) ?: cleanBase
         val responseResult = runCatching { client.newCall(request).execute() }
         responseResult.fold(
             onSuccess = { resp ->
@@ -177,7 +204,7 @@ class AuthManager(
                         _preferredMode.value = mode
                         _authState.value = AuthState.Authenticated(
                             mode = mode,
-                            accountLabel = if (isCustomCompatible) cleanBase else "Official DeepSeek API",
+                            accountLabel = displayHost,
                             connectedAt = now,
                             expiresAt = null,
                             grantsProgrammaticApi = true
@@ -191,7 +218,6 @@ class AuthManager(
                         )
                         Result.failure(SecurityException("HTTP ${it.code}: $detail"))
                     } else {
-                        // Still allow saving if server returned non-401/403 (some compatible gateways handle /chat/completions without /models)
                         vault.putSecret(VAULT_API_KEY, effectiveKey)
                         val now = System.currentTimeMillis()
                         prefs.edit()
@@ -202,7 +228,7 @@ class AuthManager(
                         _preferredMode.value = mode
                         _authState.value = AuthState.Authenticated(
                             mode = mode,
-                            accountLabel = "$cleanBase (Saved)",
+                            accountLabel = "$displayHost (Saved)",
                             connectedAt = now,
                             expiresAt = null,
                             grantsProgrammaticApi = true
@@ -240,7 +266,10 @@ class AuthManager(
     fun hasApiFallbackConfigured(): Boolean = vault.hasSecret(VAULT_API_KEY)
 
     fun getSavedApiBaseUrl(): String =
-        prefs.getString(KEY_API_BASE, "https://api.deepseek.com") ?: "https://api.deepseek.com"
+        prefs.getString(KEY_API_BASE, "").orEmpty()
+
+    fun getSavedWebPortalUrl(): String =
+        prefs.getString(KEY_WEB_PORTAL_URL, "").orEmpty()
 
     fun refreshSessionState() {
         val mode = _preferredMode.value
@@ -248,7 +277,7 @@ class AuthManager(
         when (mode) {
             ProviderMode.WEB_SESSION -> {
                 val connected = prefs.getBoolean(KEY_WEB_CONNECTED, false)
-                val label = prefs.getString(KEY_WEB_LABEL, "DeepSeek Account") ?: "DeepSeek Account"
+                val label = prefs.getString(KEY_WEB_LABEL, "Embedded Web Session") ?: "Embedded Web Session"
                 val connectedAt = prefs.getLong(KEY_WEB_CONNECTED_AT, 0L)
                 val expiresAt = prefs.getLong(KEY_WEB_EXPIRES_AT, 0L)
                 _authState.value = when {
@@ -266,10 +295,11 @@ class AuthManager(
             ProviderMode.OFFICIAL_API, ProviderMode.COMPATIBLE_API -> {
                 if (vault.hasSecret(VAULT_API_KEY)) {
                     val base = getSavedApiBaseUrl()
+                    val displayHost = extractHost(base) ?: base.ifBlank { "Configured API" }
                     val connectedAt = prefs.getLong(KEY_API_CONNECTED_AT, now)
                     _authState.value = AuthState.Authenticated(
-                        mode = mode,
-                        accountLabel = if (mode == ProviderMode.OFFICIAL_API) "Official DeepSeek API" else base,
+                        mode = ProviderMode.COMPATIBLE_API,
+                        accountLabel = displayHost,
                         connectedAt = connectedAt,
                         expiresAt = null,
                         grantsProgrammaticApi = true
@@ -290,19 +320,21 @@ class AuthManager(
         }
         vault.clearAll()
         prefs.edit().clear().apply()
-        _preferredMode.value = ProviderMode.WEB_SESSION
+        _preferredMode.value = ProviderMode.COMPATIBLE_API
         _authState.value = AuthState.NotAuthenticated
     }
 
+    private fun extractHost(url: String): String? =
+        runCatching { URI(url).host?.takeIf { it.isNotBlank() } }.getOrNull()
+
     companion object {
-        const val DEEPSEEK_WEB_URL = "https://chat.deepseek.com/"
-        private const val DEEPSEEK_WEB_ORIGIN = "https://chat.deepseek.com"
         private const val WEB_SESSION_WINDOW_MS = 24L * 60L * 60L * 1000L // 24h local session reminder
 
         private const val VAULT_API_KEY = "optional_api_key"
         private const val KEY_PREFERRED_MODE = "preferred_mode"
         private const val KEY_WEB_CONNECTED = "web_connected"
         private const val KEY_WEB_LABEL = "web_label"
+        private const val KEY_WEB_PORTAL_URL = "web_portal_url"
         private const val KEY_WEB_CONNECTED_AT = "web_connected_at"
         private const val KEY_WEB_EXPIRES_AT = "web_expires_at"
         private const val KEY_API_BASE = "api_base_url"

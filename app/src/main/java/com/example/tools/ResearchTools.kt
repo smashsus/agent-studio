@@ -70,7 +70,7 @@ class WebSearchTool(
     private fun queryDuckDuckGo(client: OkHttpClient, url: String, maxResults: Int): List<SearchHit> {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) DeepSeekAgent/1.0")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AgentStudio/1.0")
             .get()
             .build()
         client.newCall(request).execute().use { resp ->
@@ -105,7 +105,7 @@ class WebSearchTool(
     private fun queryWikipedia(client: OkHttpClient, url: String): List<SearchHit> {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "DeepSeekAgentAndroid/1.0")
+            .header("User-Agent", "AgentStudioAndroid/1.0")
             .get()
             .build()
         client.newCall(request).execute().use { resp ->
@@ -189,7 +189,7 @@ class FetchWebpageTool(
 
             val request = Request.Builder()
                 .url(rawUrl)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) DeepSeekAgent/1.0")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AgentStudio/1.0")
                 .get()
                 .build()
 

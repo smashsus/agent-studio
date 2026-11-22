@@ -10,15 +10,17 @@ import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.app.DeepSeekAgentApp
+import com.example.app.AgentStudioApp
 import com.example.authentication.AuthState
 import com.example.authentication.ProviderMode
 import com.example.database.ConversationEntity
+import com.example.database.ConversationSummary
 import com.example.database.ExecutionLogEntity
 import com.example.database.MemoryEntryEntity
 import com.example.database.MessageEntity
 import com.example.database.SubtaskEntity
 import com.example.database.TaskPlanEntity
+import com.example.execution.AgentPhase
 import com.example.execution.BackgroundAgentWorker
 import com.example.execution.ExecutionUiState
 import com.example.memory.MemoryLayer
@@ -29,9 +31,12 @@ import com.example.tools.ToolResult
 import com.example.tools.WorkspaceFileInfo
 import com.example.ui.theme.ThemeMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -49,7 +54,7 @@ data class PendingAttachment(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val app = application as DeepSeekAgentApp
+    private val app = application as AgentStudioApp
     private val container = app.container
 
     val authState: StateFlow<AuthState> = container.authManager.authState
@@ -67,6 +72,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    val conversationSummaries: StateFlow<List<ConversationSummary>> =
+        container.conversationManager.conversationSummaries.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     private val _activeConversationId = MutableStateFlow<Long?>(null)
     val activeConversationId: StateFlow<Long?> = _activeConversationId.asStateFlow()
@@ -120,6 +132,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     val snackbarMessage: StateFlow<String?> = _snackbarMessage.asStateFlow()
 
+    private val _openChatEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val openChatEvents: SharedFlow<Unit> = _openChatEvents.asSharedFlow()
+
     val toolDefinitions: List<ToolDefinition> = container.toolRegistry.allDefinitions()
 
     init {
@@ -131,6 +146,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _activeConversationId.value = existing.first().id
             }
             refreshWorkspaceFiles()
+        }
+        viewModelScope.launch {
+            executionState.collect { st ->
+                if (st.phase == AgentPhase.COMPLETED || st.phase == AgentPhase.EXECUTING_TOOL) {
+                    refreshWorkspaceFiles()
+                }
+            }
         }
     }
 
@@ -157,8 +179,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             container.conversationManager.deleteConversation(id)
             val remaining = container.conversationManager.conversations.first()
-            _activeConversationId.value = remaining.firstOrNull()?.id
-                ?: container.conversationManager.createConversation()
+            if (_activeConversationId.value == id || _activeConversationId.value == null) {
+                _activeConversationId.value = remaining.firstOrNull()?.id
+                    ?: container.conversationManager.createConversation()
+            }
+            _snackbarMessage.value = "Thread deleted."
+        }
+    }
+
+    fun renameConversation(id: Long, newTitle: String) {
+        viewModelScope.launch {
+            container.conversationManager.renameConversation(id, newTitle)
+            _snackbarMessage.value = "Thread renamed."
+        }
+    }
+
+    fun togglePinConversation(id: Long, currentlyPinned: Boolean) {
+        viewModelScope.launch {
+            container.conversationManager.setPinned(id, !currentlyPinned)
+        }
+    }
+
+    fun clearConversationMessages(id: Long) {
+        viewModelScope.launch {
+            container.conversationManager.clearMessages(id)
+            _snackbarMessage.value = "Cleared thread messages."
+        }
+    }
+
+    fun exportConversationMarkdown(id: Long) {
+        viewModelScope.launch {
+            val conv = conversations.value.firstOrNull { it.id == id }
+            val msgs = container.conversationManager.getMessagesSnapshot(id)
+            if (msgs.isEmpty()) {
+                _snackbarMessage.value = "No messages in thread to export."
+                return@launch
+            }
+            val md = buildString {
+                appendLine("# ${conv?.title ?: "Agent Thread"}")
+                appendLine()
+                msgs.forEach { m ->
+                    when (m.role) {
+                        "USER" -> appendLine("## User\n${m.content}\n")
+                        "TOOL" -> appendLine("### Tool: ${m.toolName ?: "tool"}\n```\n${m.content.take(2000)}\n```\n")
+                        "SYSTEM" -> appendLine("> System: ${m.content}\n")
+                        else -> appendLine("## Assistant\n${m.content}\n")
+                    }
+                }
+            }
+            shareText(md)
         }
     }
 
@@ -226,6 +295,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!sharedText.isNullOrBlank()) {
             sendPrompt("Analyze and act on this shared content:\n$sharedText")
         }
+        _openChatEvents.tryEmit(Unit)
     }
 
     private fun resolveDisplayName(uri: Uri): String {
@@ -246,17 +316,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         container.authManager.selectProviderMode(mode)
     }
 
-    fun beginWebAuthentication() {
-        container.authManager.beginWebAuthentication()
+    fun beginWebAuthentication(portalUrl: String? = null) {
+        container.authManager.beginWebAuthentication(portalUrl)
     }
 
-    fun onDeepSeekWebPageLoaded(url: String?, title: String?) {
+    fun onWebPageLoaded(url: String?, title: String?) {
         container.authManager.updateWebSessionFromEmbeddedBrowser(url, title)
     }
 
-    fun confirmWebSessionConnected() {
-        container.authManager.markWebSessionConfirmedByUser("DeepSeek Account (Web Session)")
-        _snackbarMessage.value = "DeepSeek Web Session marked active."
+    fun confirmWebSessionConnected(portalUrl: String? = null) {
+        container.authManager.markWebSessionConfirmedByUser(portalUrl = portalUrl)
+        _snackbarMessage.value = "Embedded Web Session marked active."
     }
 
     fun expireWebSessionForTestOrReauth() {
@@ -266,7 +336,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveApiFallback(apiKey: String, baseUrl: String, modelId: String, isCustom: Boolean) {
         viewModelScope.launch {
             val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
-            val cleanModel = modelId.trim().ifEmpty { settings.value.modelId.ifBlank { "gpt-4o-mini" } }
+            val cleanModel = modelId.trim().ifEmpty { settings.value.modelId.trim() }
+            if (cleanModel.isEmpty()) {
+                _snackbarMessage.value = "Please enter a Model ID."
+                return@launch
+            }
             val res = container.authManager.saveAndVerifyApiFallback(apiKey, cleanBase, isCustom)
             if (res.isSuccess) {
                 val savedBase = res.getOrDefault(cleanBase)
@@ -282,6 +356,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getSavedApiBaseUrl(): String = container.authManager.getSavedApiBaseUrl()
+    fun getSavedWebPortalUrl(): String = container.authManager.getSavedWebPortalUrl()
     fun hasApiFallback(): Boolean = container.authManager.hasApiFallbackConfigured()
 
     fun logoutAll() {
@@ -440,7 +515,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
         }
-        val chooser = Intent.createChooser(intent, "Share via DeepSeek Agent").apply {
+        val chooser = Intent.createChooser(intent, "Share via Agent Studio").apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         app.startActivity(chooser)
@@ -454,7 +529,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setModelConfig(modelId: String, baseUrl: String) {
         viewModelScope.launch {
             val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
-            val cleanModel = modelId.trim().ifEmpty { "gpt-4o-mini" }
+            val cleanModel = modelId.trim()
+            if (cleanModel.isEmpty()) {
+                _snackbarMessage.value = "Model ID cannot be empty."
+                return@launch
+            }
             container.settingsStore.setModelConfig(cleanModel, cleanBase)
             container.authManager.syncApiBaseUrlIfConfigured(cleanBase)
             _snackbarMessage.value = "Model configuration updated ($cleanModel)."

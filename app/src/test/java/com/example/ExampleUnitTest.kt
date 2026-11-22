@@ -1,6 +1,6 @@
 package com.example
 
-import com.example.model.DeepSeekWebBridgeProvider
+import com.example.model.WebBridgeProvider
 import com.example.permissions.ToolRiskLevel
 import com.example.settings.AgentSettings
 import com.example.tools.AgentTool
@@ -22,7 +22,7 @@ class ExampleUnitTest {
             {"tool": "web_search", "arguments": {"query": "quantum computing 2026", "max_results": 5}}
             ```
         """.trimIndent()
-        val calls = DeepSeekWebBridgeProvider.parseEmbeddedToolCalls(reply)
+        val calls = WebBridgeProvider.parseEmbeddedToolCalls(reply)
         assertEquals(1, calls.size)
         assertEquals("web_search", calls.first().toolName)
         assertTrue(calls.first().argumentsJson.contains("quantum computing 2026"))

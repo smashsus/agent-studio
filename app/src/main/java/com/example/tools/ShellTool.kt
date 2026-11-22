@@ -14,7 +14,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.io.InputStream
-import java.util.concurrent.TimeUnit
 
 class RunShellTool(
     private val context: Context,
@@ -24,7 +23,7 @@ class RunShellTool(
     override val definition = ToolDefinition(
         name = "run_shell",
         category = "Shell & System",
-        description = "Executes a local shell command via /system/bin/sh inside the Android app sandbox (defaults to AgentWorkspace). Captures stdout, stderr, and exit code.",
+        description = "Executes a local shell command via /system/bin/sh inside AgentWorkspace. Android SELinux blocks listing /system/bin directly; use 'toybox' to list built-in applets or 'command -v <name>' to check binaries. Non-zero exit codes are returned with stdout/stderr.",
         riskLevel = ToolRiskLevel.SYSTEM,
         parameters = listOf(
             ToolParameter("command", "string", "Shell command or pipeline to run under /system/bin/sh -c."),
@@ -66,6 +65,10 @@ class RunShellTool(
                         put("HOME", fileManager.rootDir.absolutePath)
                         put("WORKSPACE", fileManager.rootDir.absolutePath)
                         put("TMPDIR", context.cacheDir.absolutePath)
+                        put("CACHE_DIR", context.cacheDir.absolutePath)
+                        put("SHELL", shellBinary)
+                        put("TERM", "dumb")
+                        put("LC_ALL", "C.UTF-8")
                         if (get("PATH").isNullOrBlank()) {
                             put(
                                 "PATH",
@@ -78,20 +81,16 @@ class RunShellTool(
                 process = pb.start()
                 val proc = process
 
-                val completed = coroutineScope {
+                coroutineScope {
                     val stdoutDeferred = async(Dispatchers.IO) { readBoundedStream(proc.inputStream) }
                     val stderrDeferred = async(Dispatchers.IO) { readBoundedStream(proc.errorStream) }
+                    val exitDeferred = async(Dispatchers.IO) { proc.waitFor() }
 
-                    val finished = withTimeoutOrNull(timeoutSec * 1000L) {
-                        var done = proc.waitFor(100, TimeUnit.MILLISECONDS)
-                        while (!done) {
-                            kotlinx.coroutines.delay(50)
-                            done = proc.waitFor(50, TimeUnit.MILLISECONDS)
-                        }
-                        true
+                    val exitCode = withTimeoutOrNull(timeoutSec * 1000L) {
+                        exitDeferred.await()
                     }
 
-                    if (finished == null) {
+                    if (exitCode == null) {
                         proc.destroyForcibly()
                         val partialOut = runCatching { stdoutDeferred.await() }.getOrDefault("")
                         val partialErr = runCatching { stderrDeferred.await() }.getOrDefault("")
@@ -108,27 +107,18 @@ class RunShellTool(
                         )
                     }
 
-                    val stdout = stdoutDeferred.await()
-                    val stderr = stderrDeferred.await()
-                    val exitCode = proc.exitValue()
+                    val stdout = runCatching { stdoutDeferred.await() }.getOrDefault("")
+                    val stderr = runCatching { stderrDeferred.await() }.getOrDefault("")
                     val formatted = formatShellOutput(
                         exitCode = exitCode,
                         workDir = workDir,
                         stdout = stdout,
                         stderr = stderr
                     )
-
-                    if (exitCode == 0) {
-                        ToolResult(success = true, output = formatted)
-                    } else {
-                        ToolResult(
-                            success = false,
-                            output = formatted,
-                            error = "Shell exited with code $exitCode.\n$formatted"
-                        )
-                    }
+                    // Non-zero exit codes from executed commands (grep, ls partial permission, test, etc.)
+                    // are valid shell outputs rather than tool infrastructure failures.
+                    ToolResult(success = true, output = formatted)
                 }
-                completed
             } catch (e: Exception) {
                 process?.destroyForcibly()
                 ToolResult(false, "", error = "Shell execution failed: ${e.message ?: "Unknown error"}")
@@ -141,7 +131,10 @@ class RunShellTool(
     }
 
     private fun resolveWorkingDir(rawWorkDir: String?): File {
-        val root = fileManager.rootDir.apply { mkdirs() }
+        val root = fileManager.rootDir.apply {
+            mkdirs()
+            listOf("reports", "code", "notes", "downloads").forEach { File(this, it).mkdirs() }
+        }
         if (rawWorkDir.isNullOrBlank() || rawWorkDir == ".") {
             return root
         }
@@ -197,18 +190,20 @@ class RunShellTool(
         stdout: String,
         stderr: String
     ): String = buildString {
+        val rel = workDir.relativeToOrSelf(fileManager.rootDir).path
+        val displayDir = if (rel.isBlank() || rel == ".") "AgentWorkspace" else "AgentWorkspace/$rel"
         appendLine("Exit Code: $exitCode")
-        appendLine("Working Dir: ${workDir.absolutePath}")
-        if (stdout.isNotEmpty()) {
-            appendLine("--- STDOUT ---")
-            appendLine(stdout)
-        } else {
-            appendLine("--- STDOUT ---")
-            appendLine("(empty)")
-        }
+        appendLine("Working Dir: $displayDir")
+        appendLine("--- STDOUT ---")
+        appendLine(stdout.ifEmpty { "(empty)" })
         if (stderr.isNotEmpty()) {
             appendLine("--- STDERR ---")
             appendLine(stderr)
+            if (stderr.contains("Permission denied", ignoreCase = true) &&
+                (stderr.contains("/system/bin") || stderr.contains("/vendor") || stderr.contains("/data"))
+            ) {
+                appendLine("[Android SELinux Note: Directory listing of protected system paths is restricted for apps; use 'toybox' to list utilities or 'command -v <name>' to check a binary.]")
+            }
         }
     }.trimEnd()
 
@@ -221,7 +216,7 @@ class RunShellTool(
         private val blockedPatterns = listOf(
             Regex("""shared_prefs""", RegexOption.IGNORE_CASE),
             Regex("""keystore_vault""", RegexOption.IGNORE_CASE),
-            Regex("""deepseek_auth_meta""", RegexOption.IGNORE_CASE),
+            Regex("""auth_meta""", RegexOption.IGNORE_CASE),
             Regex("""\b(dalvikvm|app_process|dex2oat)\b""", RegexOption.IGNORE_CASE)
         )
 

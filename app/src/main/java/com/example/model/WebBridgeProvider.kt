@@ -11,20 +11,20 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * Priority 1 Provider: Official DeepSeek Web Session Bridge.
+ * Embedded Web Session Bridge Provider.
  *
  * Design honesty & security:
- * Logging into chat.deepseek.com provides browser-based interaction inside the embedded WebView
- * and does NOT grant programmatic API access. This provider NEVER scrapes private endpoints or
+ * Logging into a web portal provides browser-based interaction inside the embedded WebView
+ * and does NOT grant programmatic API access. This provider never scrapes private endpoints or
  * fakes API calls. Instead, it:
- * 1) Parses structured tool calls from a user-supplied DeepSeek WebView reply, OR
- * 2) Suggests / executes deterministic local tool chains (search, webpage extraction, PDF/file
- *    inspection, JS sandbox, Android Intents, notifications) and prepares the structured context
- *    prompt for the user's authenticated DeepSeek WebView session.
+ * 1) Parses structured tool calls from a user-supplied web session reply, OR
+ * 2) Suggests / executes deterministic local tool chains (shell, search, webpage extraction,
+ *    PDF/file inspection, JS sandbox, Android Intents, notifications) and prepares the structured
+ *    context prompt for the user's embedded web session.
  */
-class DeepSeekWebBridgeProvider : ModelProvider {
+class WebBridgeProvider : ModelProvider {
 
-    override val providerName: String = "Official DeepSeek Web Session (Bridge)"
+    override val providerName: String = "Embedded Web Session (Bridge)"
 
     override suspend fun generateNextStep(request: ModelRequest): ModelResponse {
         val reply = request.webBridgeReply?.trim()
@@ -33,7 +33,7 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             if (calls.isNotEmpty()) {
                 return ModelResponse.ToolCallsResponse(
                     calls = calls,
-                    assistantThought = "Parsed ${calls.size} structured tool call(s) from DeepSeek Web response."
+                    assistantThought = "Parsed ${calls.size} structured tool call(s) from web session response."
                 )
             }
             return ModelResponse.TextResponse(content = reply)
@@ -42,39 +42,39 @@ class DeepSeekWebBridgeProvider : ModelProvider {
         val lastMsg = request.messages.lastOrNull()
         val lastUserPrompt = request.messages.lastOrNull { it.role == "user" }?.content.orEmpty()
 
-        // If tool outputs were just returned in local direct mode, summarize them cleanly or bridge to DeepSeek Web
         if (lastMsg?.role == "tool" && request.runLocalToolchainDirect) {
             val toolOutputs = request.messages.takeLastWhile { it.role == "tool" }
             val summary = buildLocalCompletionSummary(lastUserPrompt, toolOutputs)
             return ModelResponse.TextResponse(content = summary)
         }
 
-        val suggestedCalls = inferLocalToolCalls(lastUserPrompt)
+        val suggestedCalls = inferLocalToolCalls(lastUserPrompt, request.settings.modelId)
 
         if (request.runLocalToolchainDirect && suggestedCalls.isNotEmpty() && request.isFirstTurn) {
             return ModelResponse.ToolCallsResponse(
                 calls = suggestedCalls,
-                assistantThought = "Executing local autonomous tool chain in Web-Session Bridge mode."
+                assistantThought = "Executing local autonomous tool chain in Web Session Bridge mode."
             )
         }
 
         val preparedPrompt = buildStructuredWebBridgePrompt(request)
         return ModelResponse.AwaitingWebBridge(
             preparedPrompt = preparedPrompt,
-            explanation = "DeepSeek Web Session mode uses your authenticated chat.deepseek.com browser tab (no private endpoint scraping). Send this structured prompt in the DeepSeek Web tab and import DeepSeek's response, or tap 'Run Local Tools' to execute on-device tools directly.",
+            explanation = "Embedded Web Session mode uses your in-app browser tab (no private endpoint scraping). Copy this structured prompt into your web session and paste the reply below, or tap 'Run Local Tools' to execute on-device tools directly.",
             suggestedLocalCalls = suggestedCalls
         )
     }
 
     override fun cancelActiveRequest() {
-        // No raw socket held here; coroutine job cancellation stops bridge wait.
+        // Coroutine job cancellation stops bridge wait cleanly.
     }
 
     private fun buildStructuredWebBridgePrompt(request: ModelRequest): String {
         val userGoal = request.messages.lastOrNull { it.role == "user" }?.content.orEmpty()
         val recentTools = request.messages.filter { it.role == "tool" }.takeLast(4)
+        val activeLabel = request.settings.modelId.ifBlank { "Agent Studio" }
         return buildString {
-            appendLine("[DeepSeek Agent Harness • Structured Tool Request]")
+            appendLine("[$activeLabel • Structured Tool Request]")
             appendLine("Goal: $userGoal")
             if (request.systemPrompt.isNotBlank()) {
                 appendLine()
@@ -111,14 +111,13 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             appendLine()
         }
         appendLine("---")
-        appendLine("_Tip: Open the **Account** tab to paste or synthesize these findings inside your signed-in `chat.deepseek.com` session, or add an optional Priority 2 API key for fully automatic model synthesis._")
+        appendLine("_Tip: Open **Account & Endpoints** to synthesize these findings inside your embedded web session, or connect any OpenAI-compatible API endpoint for fully automatic multi-step reasoning._")
     }
 
-    private fun inferLocalToolCalls(prompt: String): List<ToolCallRequest> {
+    private fun inferLocalToolCalls(prompt: String, modelId: String): List<ToolCallRequest> {
         val lower = prompt.lowercase()
         val calls = mutableListOf<ToolCallRequest>()
 
-        // Detect attached URI inside prompt metadata
         val uriMatch = Regex("""\[Attachment URI:\s*(content://[^\]]+)\]""").find(prompt)
         if (uriMatch != null) {
             val uri = uriMatch.groupValues[1].trim()
@@ -132,7 +131,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // URL fetch
         val urlMatch = Regex("""https://[^\s\]]+""").find(prompt)
         if (urlMatch != null && (lower.contains("fetch") || lower.contains("read") || lower.contains("summarize") || lower.contains("extract"))) {
             calls.add(
@@ -152,7 +150,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // Research / Web Search
         if (calls.isEmpty() && (lower.contains("research") || lower.contains("search") || lower.contains("latest") || lower.contains("find"))) {
             val cleanQuery = prompt
                 .replace(Regex("^(research|search for|search|find|look up)\\s+", RegexOption.IGNORE_CASE), "")
@@ -169,7 +166,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // JavaScript sandbox
         val jsBlock = Regex("""```(?:js|javascript)\s*([\s\S]*?)```""", RegexOption.IGNORE_CASE).find(prompt)
         if (jsBlock != null) {
             calls.add(
@@ -181,7 +177,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // Shell command
         val shBlock = Regex("""```(?:sh|bash|shell)\s*([\s\S]*?)```""", RegexOption.IGNORE_CASE).find(prompt)
         val explicitShell = Regex("""^(?:run\s+shell|shell)\s*:\s*(.+)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(prompt.trim())
         val shellCmd = shBlock?.groupValues?.get(1)?.trim() ?: explicitShell?.groupValues?.get(1)?.trim()
@@ -195,14 +190,14 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // Notification / reminder
         if (lower.contains("remind") || lower.contains("notify") || lower.contains("notification")) {
+            val reminderTitle = modelId.ifBlank { "Agent" }
             calls.add(
                 ToolCallRequest(
                     id = "local_notif_1",
                     toolName = "create_notification",
                     argumentsJson = buildJsonObject {
-                        put("title", "DeepSeek Agent Reminder")
+                        put("title", "$reminderTitle Reminder")
                         put("message", prompt.take(120))
                         if (lower.contains("in ")) put("delay_seconds", 10)
                     }.toString()
@@ -210,7 +205,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // Accessibility screen read
         if (lower.contains("read screen") || lower.contains("screen content") || lower.contains("what is on my screen")) {
             calls.add(
                 ToolCallRequest(
@@ -221,7 +215,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // Workspace files listing
         if (lower.contains("list files") || lower.contains("workspace files")) {
             calls.add(
                 ToolCallRequest(
@@ -232,7 +225,6 @@ class DeepSeekWebBridgeProvider : ModelProvider {
             )
         }
 
-        // Open app
         val openAppMatch = Regex("""(?:open|launch)\s+app\s+([a-zA-Z0-9._ -]{2,30})""", RegexOption.IGNORE_CASE).find(prompt)
         if (openAppMatch != null) {
             calls.add(

@@ -1,12 +1,15 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,21 +17,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,10 +35,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.Brain
+import com.adamglin.phosphoricons.regular.PencilSimple
+import com.adamglin.phosphoricons.regular.Plus
+import com.adamglin.phosphoricons.regular.Trash
 import com.example.database.MemoryEntryEntity
 import com.example.memory.MemoryLayer
 import com.example.ui.MainViewModel
@@ -58,6 +62,7 @@ import com.example.ui.components.SwissSurfaceCard
 import com.example.ui.components.SwissTopBar
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
+import com.example.ui.theme.SwissMotion
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -97,9 +102,9 @@ fun MemoryScreen(
     }
 
     val tabs = listOf(
-        "Short-Term (${messages.size})",
+        "Short (${messages.size})",
         "Task (${taskMemories.size + subtasks.size})",
-        "Long-Term (${longTermMemories.size})"
+        "Long (${longTermMemories.size})"
     )
 
     Column(
@@ -118,46 +123,69 @@ fun MemoryScreen(
                             .size(SwissGeometry.minTouchTarget)
                             .testTag("add_memory_fab")
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Memory Entry", tint = tokens.primaryText)
+                        Icon(
+                            PhosphorIcons.Regular.Plus,
+                            contentDescription = "Add Memory Entry",
+                            tint = tokens.primaryText,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
         )
 
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = tokens.background,
-            contentColor = tokens.primaryText,
-            indicator = { positions ->
-                if (selectedTab < positions.size) {
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(positions[selectedTab]),
-                        color = tokens.primaryAccent
-                    )
-                }
-            }
+        // Flat-Semi Material Segmented Tab Selector
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = SwissGeometry.screenPadding, vertical = 10.dp)
         ) {
-            tabs.forEachIndexed { idx, label ->
-                Tab(
-                    selected = selectedTab == idx,
-                    onClick = { selectedTab = idx },
-                    text = {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (selectedTab == idx) tokens.primaryText else tokens.secondaryText,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+            Surface(
+                color = tokens.surface2,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    tabs.forEachIndexed { idx, label ->
+                        val selected = selectedTab == idx
+                        val bgColor by animateColorAsState(
+                            targetValue = if (selected) tokens.surface1 else Color.Transparent,
+                            animationSpec = tween(SwissMotion.fadeDurationMs),
+                            label = "mem_tab_$idx"
                         )
-                    },
-                    modifier = Modifier.testTag("memory_tab_$idx")
-                )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(bgColor)
+                                .clickable { selectedTab = idx }
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
+                                .testTag("memory_tab_$idx"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (selected) tokens.primaryAccent else tokens.secondaryText,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
         }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(SwissGeometry.screenPadding),
+            contentPadding = PaddingValues(horizontal = SwissGeometry.screenPadding, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -173,7 +201,7 @@ fun MemoryScreen(
                     if (filteredMessages.isEmpty()) {
                         item {
                             SwissEmptyState(
-                                icon = Icons.Default.Memory,
+                                icon = PhosphorIcons.Regular.Brain,
                                 title = "Short-Term Memory Empty",
                                 description = "Messages from the active thread appear here as rolling working context."
                             )
@@ -238,7 +266,7 @@ fun MemoryScreen(
                     if (filteredTaskMem.isEmpty() && subtasks.isEmpty()) {
                         item {
                             SwissEmptyState(
-                                icon = Icons.Default.Memory,
+                                icon = PhosphorIcons.Regular.Brain,
                                 title = "No Task Memory Entries",
                                 description = "Intermediate task summaries and working notes are stored here."
                             )
@@ -270,7 +298,7 @@ fun MemoryScreen(
                     if (filteredLongMem.isEmpty()) {
                         item {
                             SwissEmptyState(
-                                icon = Icons.Default.Memory,
+                                icon = PhosphorIcons.Regular.Brain,
                                 title = "No Long-Term Memory Entries",
                                 description = "Approved user preferences, project facts, and persistent context appear here."
                             )
@@ -363,10 +391,10 @@ private fun MemoryEntryCard(
             }
             Row {
                 IconButton(onClick = onEdit, modifier = Modifier.size(SwissGeometry.minTouchTarget)) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Memory", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                    Icon(PhosphorIcons.Regular.PencilSimple, contentDescription = "Edit Memory", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(SwissGeometry.minTouchTarget)) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Memory", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                    Icon(PhosphorIcons.Regular.Trash, contentDescription = "Delete Memory", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
                 }
             }
         }

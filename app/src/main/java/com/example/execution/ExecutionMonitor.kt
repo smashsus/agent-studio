@@ -13,7 +13,7 @@ enum class AgentPhase(val label: String) {
     EXECUTING_TOOL("Executing Tools"),
     PROCESSING_RESULTS("Processing Results"),
     AWAITING_APPROVAL("Awaiting Approval"),
-    AWAITING_WEB_BRIDGE("DeepSeek Web Bridge"),
+    AWAITING_WEB_BRIDGE("Web Session Bridge"),
     COMPLETED("Completed"),
     CANCELLED("Cancelled"),
     ERROR("Error")

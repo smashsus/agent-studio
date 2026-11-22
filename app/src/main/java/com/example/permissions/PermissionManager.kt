@@ -44,7 +44,7 @@ class PermissionManager(private val context: Context) {
             }
             if (!isAccessibilityServiceEnabled()) {
                 return PermissionDecision.Denied(
-                    "DeepSeek Agent Accessibility Service is not enabled in Android Settings."
+                    "Agent Studio Accessibility Service is not enabled in Android Settings."
                 )
             }
         }
@@ -128,7 +128,7 @@ class PermissionManager(private val context: Context) {
     }
 
     fun isAccessibilityServiceEnabled(): Boolean {
-        if (AgentAccessibilityService.instance != null) return true
+        if (AgentAccessibilityService.isBridgeConnected(context)) return true
         val expectedComponent = "${context.packageName}/${AgentAccessibilityService::class.java.name}"
         val enabledServices = runCatching {
             Settings.Secure.getString(

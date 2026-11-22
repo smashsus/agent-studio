@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +28,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.Copy
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
@@ -97,9 +98,9 @@ fun MarkdownMessageContent(
                     }
                     is MarkdownBlock.Quote -> {
                         Surface(
-                            color = tokens.surface1,
+                            color = tokens.surface2.copy(alpha = 0.7f),
                             shape = RoundedCornerShape(SwissGeometry.radiusSmall),
-                            border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+                            border = BorderStroke(0.75.dp, tokens.border.copy(alpha = 0.5f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
@@ -113,8 +114,8 @@ fun MarkdownMessageContent(
                     is MarkdownBlock.CodeBlock -> {
                         Surface(
                             color = tokens.surface1,
-                            shape = RoundedCornerShape(SwissGeometry.radiusSmall),
-                            border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+                            shape = RoundedCornerShape(SwissGeometry.radiusStandard),
+                            border = BorderStroke(0.75.dp, tokens.border.copy(alpha = 0.55f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
@@ -135,7 +136,7 @@ fun MarkdownMessageContent(
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.ContentCopy,
+                                            imageVector = PhosphorIcons.Regular.Copy,
                                             contentDescription = "Copy code",
                                             tint = tokens.secondaryText,
                                             modifier = Modifier.size(16.dp)

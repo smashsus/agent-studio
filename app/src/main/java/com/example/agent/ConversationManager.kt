@@ -2,6 +2,7 @@ package com.example.agent
 
 import com.example.database.AppDatabase
 import com.example.database.ConversationEntity
+import com.example.database.ConversationSummary
 import com.example.database.MessageEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -10,12 +11,12 @@ class ConversationManager(private val db: AppDatabase) {
     private val messageDao = db.messageDao()
 
     val conversations: Flow<List<ConversationEntity>> = conversationDao.observeConversations()
+    val conversationSummaries: Flow<List<ConversationSummary>> = conversationDao.observeConversationSummaries()
 
     fun observeMessages(conversationId: Long): Flow<List<MessageEntity>> =
         messageDao.observeMessages(conversationId)
 
     suspend fun ensureDefaultConversation(): Long {
-        // Always returns a valid conversation id
         return createConversation("New Agent Mission")
     }
 
@@ -35,6 +36,25 @@ class ConversationManager(private val db: AppDatabase) {
             conversationDao.touch(conversationId)
         }
     }
+
+    suspend fun renameConversation(conversationId: Long, newTitle: String) {
+        val clean = newTitle.trim().replace("\n", " ").take(60)
+        if (clean.isNotEmpty()) {
+            conversationDao.updateTitle(conversationId, clean)
+        }
+    }
+
+    suspend fun setPinned(conversationId: Long, pinned: Boolean) {
+        conversationDao.setPinned(conversationId, pinned)
+    }
+
+    suspend fun clearMessages(conversationId: Long) {
+        messageDao.clearConversation(conversationId)
+        conversationDao.touch(conversationId)
+    }
+
+    suspend fun getMessagesSnapshot(conversationId: Long): List<MessageEntity> =
+        messageDao.getMessagesOnce(conversationId)
 
     suspend fun appendMessage(message: MessageEntity): Long {
         conversationDao.touch(message.conversationId)

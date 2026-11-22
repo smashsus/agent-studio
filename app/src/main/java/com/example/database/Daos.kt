@@ -7,10 +7,31 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+data class ConversationSummary(
+    val id: Long,
+    val title: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val isPinned: Boolean,
+    val messageCount: Int,
+    val lastMessagePreview: String?
+)
+
 @Dao
 interface ConversationDao {
-    @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM conversations ORDER BY isPinned DESC, updatedAt DESC")
     fun observeConversations(): Flow<List<ConversationEntity>>
+
+    @Query(
+        """
+        SELECT c.id, c.title, c.createdAt, c.updatedAt, c.isPinned,
+               (SELECT COUNT(*) FROM messages m WHERE m.conversationId = c.id) AS messageCount,
+               (SELECT m2.content FROM messages m2 WHERE m2.conversationId = c.id ORDER BY m2.timestamp DESC, m2.id DESC LIMIT 1) AS lastMessagePreview
+        FROM conversations c
+        ORDER BY c.isPinned DESC, c.updatedAt DESC
+        """
+    )
+    fun observeConversationSummaries(): Flow<List<ConversationSummary>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun getById(id: Long): ConversationEntity?
@@ -20,6 +41,9 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET title = :title, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateTitle(id: Long, title: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE conversations SET isPinned = :pinned WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean)
 
     @Query("UPDATE conversations SET updatedAt = :updatedAt WHERE id = :id")
     suspend fun touch(id: Long, updatedAt: Long = System.currentTimeMillis())

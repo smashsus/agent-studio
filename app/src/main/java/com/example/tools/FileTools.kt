@@ -65,22 +65,20 @@ class WorkspaceFileManager(private val context: Context) {
 
     fun listAllFiles(): List<WorkspaceFileInfo> {
         val results = mutableListOf<WorkspaceFileInfo>()
-        allowedCategories.forEach { cat ->
-            val dir = File(rootDir, cat)
-            if (dir.exists() && dir.isDirectory) {
-                dir.listFiles()?.filter { it.isFile }?.forEach { file ->
-                    results.add(
-                        WorkspaceFileInfo(
-                            name = file.name,
-                            category = cat,
-                            absolutePath = file.absolutePath,
-                            sizeBytes = file.length(),
-                            lastModified = file.lastModified(),
-                            extension = file.extension.lowercase()
-                        )
-                    )
-                }
-            }
+        if (!rootDir.exists()) return emptyList()
+        rootDir.walkTopDown().maxDepth(3).filter { it.isFile }.forEach { file ->
+            val relParent = file.parentFile?.relativeToOrSelf(rootDir)?.path.orEmpty()
+            val cat = if (relParent.isBlank() || relParent == ".") "workspace" else relParent.substringBefore(File.separatorChar)
+            results.add(
+                WorkspaceFileInfo(
+                    name = file.name,
+                    category = cat,
+                    absolutePath = file.absolutePath,
+                    sizeBytes = file.length(),
+                    lastModified = file.lastModified(),
+                    extension = file.extension.lowercase()
+                )
+            )
         }
         return results.sortedByDescending { it.lastModified }
     }

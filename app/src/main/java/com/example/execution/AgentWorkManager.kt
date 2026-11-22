@@ -9,7 +9,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.example.R
-import com.example.app.DeepSeekAgentApp
+import com.example.app.AgentStudioApp
 import com.example.permissions.PermissionManager
 import com.example.tools.NotificationTool
 
@@ -19,7 +19,7 @@ class ReminderWorker(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val title = inputData.getString(KEY_TITLE) ?: "DeepSeek Agent Reminder"
+        val title = inputData.getString(KEY_TITLE) ?: "Agent Reminder"
         val message = inputData.getString(KEY_MESSAGE) ?: "Scheduled agent task reminder."
 
         val permissionManager = PermissionManager(applicationContext)
@@ -60,7 +60,7 @@ class BackgroundAgentWorker(
         val prompt = inputData.getString(KEY_PROMPT) ?: return Result.failure()
         if (conversationId <= 0L) return Result.failure()
 
-        val container = (applicationContext as DeepSeekAgentApp).container
+        val container = (applicationContext as AgentStudioApp).container
         container.agentController.runMissionInCurrentScope(
             conversationId = conversationId,
             userPrompt = prompt,

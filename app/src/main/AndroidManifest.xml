@@ -22,7 +22,7 @@
     </queries>
 
     <application
-        android:name=".app.DeepSeekAgentApp"
+        android:name=".app.AgentStudioApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -30,7 +30,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MyApplication"
+        android:theme="@style/Theme.AgentStudio"
         android:usesCleartextTraffic="false">
 
         <activity
@@ -38,7 +38,7 @@
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTop"
-            android:theme="@style/Theme.MyApplication"
+            android:theme="@style/Theme.AgentStudio"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -66,11 +66,18 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <provider
+            android:name=".accessibility.AccessibilityBridgeProvider"
+            android:authorities="${applicationId}.a11ybridge"
+            android:exported="false"
+            android:process=":a11y" />
+
         <service
             android:name=".accessibility.AgentAccessibilityService"
             android:exported="false"
             android:label="@string/app_name"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:process=":a11y">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>

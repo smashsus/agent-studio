@@ -34,14 +34,14 @@ enum class AutonomyLevel(val label: String, val description: String) {
 
 data class AgentSettings(
     val autonomyLevel: AutonomyLevel = AutonomyLevel.AUTONOMOUS,
-    val modelId: String = "deepseek-chat",
-    val customBaseUrl: String = "https://api.deepseek.com",
+    val modelId: String = "",
+    val customBaseUrl: String = "",
     val retryLimit: Int = 2,
     val timeoutSeconds: Int = 30,
     val maxSteps: Int = 10,
-    val themeMode: ThemeMode = ThemeMode.DARK,
+    val themeMode: ThemeMode = ThemeMode.LIGHT,
     val restrictNetworkDomains: Boolean = false,
-    val allowedDomainsCsv: String = "api.deepseek.com,duckduckgo.com,en.wikipedia.org,github.com,arxiv.org",
+    val allowedDomainsCsv: String = "duckduckgo.com,en.wikipedia.org,github.com,arxiv.org",
     val longTermMemoryEnabled: Boolean = true,
     val autoSummarizeTasks: Boolean = true,
     val accessibilityUserConsent: Boolean = false,
@@ -71,18 +71,18 @@ class SettingsStore(private val context: Context) {
             ?: AutonomyLevel.AUTONOMOUS
         val theme = prefs[Keys.THEME_MODE]
             ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
-            ?: ThemeMode.DARK
+            ?: ThemeMode.LIGHT
         AgentSettings(
             autonomyLevel = autonomy,
-            modelId = prefs[Keys.MODEL_ID] ?: "deepseek-chat",
-            customBaseUrl = prefs[Keys.CUSTOM_BASE_URL] ?: "https://api.deepseek.com",
+            modelId = prefs[Keys.MODEL_ID].orEmpty(),
+            customBaseUrl = prefs[Keys.CUSTOM_BASE_URL].orEmpty(),
             retryLimit = (prefs[Keys.RETRY_LIMIT] ?: 2).coerceIn(0, 5),
             timeoutSeconds = (prefs[Keys.TIMEOUT_SECONDS] ?: 30).coerceIn(10, 120),
             maxSteps = (prefs[Keys.MAX_STEPS] ?: 10).coerceIn(2, 25),
             themeMode = theme,
             restrictNetworkDomains = prefs[Keys.RESTRICT_DOMAINS] ?: false,
             allowedDomainsCsv = prefs[Keys.ALLOWED_DOMAINS]
-                ?: "api.deepseek.com,duckduckgo.com,en.wikipedia.org,github.com,arxiv.org",
+                ?: "duckduckgo.com,en.wikipedia.org,github.com,arxiv.org",
             longTermMemoryEnabled = prefs[Keys.LONG_TERM_MEMORY] ?: true,
             autoSummarizeTasks = prefs[Keys.AUTO_SUMMARIZE_TASKS] ?: true,
             accessibilityUserConsent = prefs[Keys.ACCESSIBILITY_CONSENT] ?: false,
@@ -96,8 +96,8 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setModelConfig(modelId: String, customBaseUrl: String) {
         context.agentSettingsDataStore.edit {
-            it[Keys.MODEL_ID] = modelId.trim().ifEmpty { "deepseek-chat" }
-            it[Keys.CUSTOM_BASE_URL] = customBaseUrl.trim().ifEmpty { "https://api.deepseek.com" }
+            it[Keys.MODEL_ID] = modelId.trim()
+            it[Keys.CUSTOM_BASE_URL] = customBaseUrl.trim()
         }
     }
 

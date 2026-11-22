@@ -1,6 +1,6 @@
 {
-  "name": "Agent Harness",
-  "description": "Provider-neutral native Android autonomous AI agent harness with custom endpoint & web session support, on-device tools, three-layer Room memory, and Android integrations.",
+  "name": "Agent Studio",
+  "description": "Provider-neutral native Android autonomous AI workspace with custom endpoint & web session support, sandboxed shell and on-device tools, three-layer Room memory, and Android integrations.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

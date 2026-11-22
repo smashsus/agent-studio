@@ -1,5 +1,6 @@
 package com.example.ui.navigation
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,19 +20,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -42,9 +37,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,11 +51,24 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.Brain
+import com.adamglin.phosphoricons.fill.ClockCounterClockwise
+import com.adamglin.phosphoricons.fill.Folder
+import com.adamglin.phosphoricons.fill.House
+import com.adamglin.phosphoricons.regular.Brain
+import com.adamglin.phosphoricons.regular.ClockCounterClockwise
+import com.adamglin.phosphoricons.regular.Folder
+import com.adamglin.phosphoricons.regular.House
+import androidx.navigation.toRoute
 import com.example.ui.MainViewModel
 import com.example.ui.components.HtmlSandboxPreviewDialog
 import com.example.ui.components.SwissDivider
 import com.example.ui.screens.ActivityScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.FilesAndSandboxScreen
 import com.example.ui.screens.MemoryScreen
 import com.example.ui.screens.SettingsScreen
@@ -69,6 +79,7 @@ import com.example.ui.theme.SwissMotion
 import kotlinx.serialization.Serializable
 
 @Serializable data object WorkspaceRoute
+@Serializable data class ChatRoute(val prefillPrompt: String = "")
 @Serializable data object ActivityRoute
 @Serializable data object MemoryRoute
 @Serializable data object FilesRoute
@@ -84,14 +95,38 @@ private data class TopLevelDestination(
 )
 
 private val topLevelDestinations = listOf(
-    TopLevelDestination(WorkspaceRoute, "Home", Icons.Filled.Home, Icons.Outlined.Home, "nav_workspace"),
-    TopLevelDestination(ActivityRoute, "Activity", Icons.Filled.History, Icons.Outlined.History, "nav_activity"),
-    TopLevelDestination(MemoryRoute, "Memory", Icons.Filled.Memory, Icons.Outlined.Memory, "nav_memory"),
-    TopLevelDestination(FilesRoute, "Files", Icons.Filled.Folder, Icons.Outlined.Folder, "nav_files")
+    TopLevelDestination(
+        WorkspaceRoute,
+        "Home",
+        PhosphorIcons.Fill.House,
+        PhosphorIcons.Regular.House,
+        "nav_workspace"
+    ),
+    TopLevelDestination(
+        ActivityRoute,
+        "Activity",
+        PhosphorIcons.Fill.ClockCounterClockwise,
+        PhosphorIcons.Regular.ClockCounterClockwise,
+        "nav_activity"
+    ),
+    TopLevelDestination(
+        MemoryRoute,
+        "Memory",
+        PhosphorIcons.Fill.Brain,
+        PhosphorIcons.Regular.Brain,
+        "nav_memory"
+    ),
+    TopLevelDestination(
+        FilesRoute,
+        "Files",
+        PhosphorIcons.Fill.Folder,
+        PhosphorIcons.Regular.Folder,
+        "nav_files"
+    )
 )
 
 @Composable
-fun DeepSeekAgentAppRoot(viewModel: MainViewModel) {
+fun AgentStudioAppRoot(viewModel: MainViewModel) {
     val tokens = LocalSwissTokens.current
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -105,6 +140,14 @@ fun DeepSeekAgentAppRoot(viewModel: MainViewModel) {
         snackbarMsg?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.consumeSnackbar()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.openChatEvents.collect {
+            navController.navigate(ChatRoute()) {
+                launchSingleTop = true
+            }
         }
     }
 
@@ -154,12 +197,17 @@ fun DeepSeekAgentAppRoot(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
                                         contentDescription = dest.label,
-                                        modifier = Modifier
-                                            .size(SwissGeometry.iconSize)
-                                            .alpha(if (selected) 1.0f else 0.65f)
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 },
                                 label = { Text(dest.label, fontSize = 11.sp) },
+                                colors = NavigationRailItemDefaults.colors(
+                                    selectedIconColor = tokens.primaryAccent,
+                                    selectedTextColor = tokens.primaryText,
+                                    indicatorColor = tokens.primaryAccent.copy(alpha = 0.14f),
+                                    unselectedIconColor = tokens.secondaryText,
+                                    unselectedTextColor = tokens.secondaryText
+                                ),
                                 modifier = Modifier.testTag(dest.testTag)
                             )
                         }
@@ -180,9 +228,24 @@ fun DeepSeekAgentAppRoot(viewModel: MainViewModel) {
                     composable<WorkspaceRoute> {
                         WorkspaceScreen(
                             viewModel = viewModel,
+                            onOpenChat = { prefill ->
+                                navController.navigate(ChatRoute(prefillPrompt = prefill)) {
+                                    launchSingleTop = true
+                                }
+                            },
                             onNavigateToAuth = { navController.navigate(AuthRoute) },
                             onNavigateToSettings = { navController.navigate(SettingsRoute) },
-                            onNavigateToActivity = { navigateToTopLevel(ActivityRoute) }
+                            onNavigateToActivity = { navigateToTopLevel(ActivityRoute) },
+                            onNavigateToFiles = { navigateToTopLevel(FilesRoute) }
+                        )
+                    }
+                    composable<ChatRoute> { entry ->
+                        val route = entry.toRoute<ChatRoute>()
+                        ChatScreen(
+                            viewModel = viewModel,
+                            initialDraft = route.prefillPrompt,
+                            onBack = { navController.popBackStack() },
+                            onNavigateToAuth = { navController.navigate(AuthRoute) }
                         )
                     }
                     composable<ActivityRoute> {
@@ -244,8 +307,17 @@ private fun SwissBottomNavigationBar(
         ) {
             topLevelDestinations.forEach { dest ->
                 val selected = currentDestination?.hasRoute(dest.route::class) == true
-                val iconAlpha = if (selected) 1.00f else 0.65f
-                val contentColor = if (selected) tokens.primaryText else tokens.secondaryText
+                val pillColor by animateColorAsState(
+                    targetValue = if (selected) tokens.primaryAccent.copy(alpha = 0.14f) else Color.Transparent,
+                    animationSpec = tween(SwissMotion.fadeDurationMs),
+                    label = "nav_pill_${dest.label}"
+                )
+                val iconTint by animateColorAsState(
+                    targetValue = if (selected) tokens.primaryAccent else tokens.secondaryText,
+                    animationSpec = tween(SwissMotion.fadeDurationMs),
+                    label = "nav_tint_${dest.label}"
+                )
+                val labelColor = if (selected) tokens.primaryText else tokens.secondaryText
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -253,27 +325,34 @@ private fun SwissBottomNavigationBar(
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = SwissGeometry.minTouchTarget)
+                        .clip(CircleShape)
                         .clickable { onSelect(dest.route) }
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 6.dp)
                         .testTag(dest.testTag)
                 ) {
                     Box(
-                        modifier = Modifier.padding(bottom = 4.dp),
+                        modifier = Modifier
+                            .padding(bottom = 4.dp)
+                            .width(56.dp)
+                            .height(30.dp)
+                            .clip(CircleShape)
+                            .background(pillColor),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
                             contentDescription = dest.label,
-                            tint = if (selected) tokens.primaryAccent else contentColor,
-                            modifier = Modifier
-                                .size(22.dp)
-                                .alpha(iconAlpha)
+                            tint = iconTint,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     Text(
                         text = dest.label,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = contentColor,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                        ),
+                        color = labelColor,
                         maxLines = 1
                     )
                 }

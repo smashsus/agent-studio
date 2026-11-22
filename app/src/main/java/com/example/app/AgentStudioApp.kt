@@ -11,8 +11,8 @@ import com.example.execution.ErrorRecoveryManager
 import com.example.execution.ExecutionMonitor
 import com.example.execution.TaskPlanner
 import com.example.memory.MemoryManager
-import com.example.model.DeepSeekWebBridgeProvider
 import com.example.model.OpenAiCompatibleModelProvider
+import com.example.model.WebBridgeProvider
 import com.example.permissions.PermissionManager
 import com.example.settings.SettingsStore
 import com.example.tools.AccessibilityTool
@@ -69,14 +69,14 @@ class AppContainer(context: Context) {
             ShareContentTool(appContext, fileManager),
             ClipboardTool(appContext),
             NotificationTool(appContext, permissionManager),
-            AccessibilityTool(),
+            AccessibilityTool(appContext),
             ManageTaskListTool(database),
             SaveMemoryTool(memoryManager)
         )
     )
 
     val toolExecutor = ToolExecutor(toolRegistry)
-    private val webBridgeProvider = DeepSeekWebBridgeProvider()
+    private val webBridgeProvider = WebBridgeProvider()
     private val apiProvider = OpenAiCompatibleModelProvider(authManager)
 
     val agentController = AgentController(
@@ -96,12 +96,25 @@ class AppContainer(context: Context) {
     )
 }
 
-class DeepSeekAgentApp : Application() {
+class AgentStudioApp : Application() {
     lateinit var container: AppContainer
         private set
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
+        if (isMainAppProcess()) {
+            container = AppContainer(this)
+        }
+    }
+
+    private fun isMainAppProcess(): Boolean {
+        val procName = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            getProcessName()
+        } else {
+            runCatching {
+                java.io.File("/proc/self/cmdline").readText().trim('\u0000').trim()
+            }.getOrNull()
+        }
+        return procName.isNullOrBlank() || procName == packageName
     }
 }

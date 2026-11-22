@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -17,17 +18,12 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -49,8 +45,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.ArrowLeft
+import com.adamglin.phosphoricons.regular.MagnifyingGlass
+import com.adamglin.phosphoricons.regular.X
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
 import com.example.ui.theme.SwissMotion
@@ -61,7 +63,7 @@ fun SwissDivider(modifier: Modifier = Modifier) {
     val tokens = LocalSwissTokens.current
     HorizontalDivider(
         modifier = modifier,
-        thickness = SwissGeometry.borderWidth,
+        thickness = 0.75.dp,
         color = tokens.border.copy(alpha = SwissOpacity.divider)
     )
 }
@@ -78,7 +80,7 @@ fun SwissTopBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = 56.dp)
+                .defaultMinSize(minHeight = 58.dp)
                 .padding(horizontal = SwissGeometry.screenPadding, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -88,18 +90,25 @@ fun SwissTopBar(
                 modifier = Modifier.weight(1f)
             ) {
                 if (onBack != null) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.size(SwissGeometry.minTouchTarget)
+                    Surface(
+                        color = tokens.surface2,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .defaultMinSize(minWidth = SwissGeometry.minTouchTarget, minHeight = SwissGeometry.minTouchTarget)
+                            .clip(CircleShape)
+                            .clickable(onClick = onBack)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = tokens.primaryText,
-                            modifier = Modifier.size(SwissGeometry.iconSize)
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = PhosphorIcons.Regular.ArrowLeft,
+                                contentDescription = "Back",
+                                tint = tokens.primaryText,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(10.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -123,7 +132,7 @@ fun SwissTopBar(
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 content = actions
             )
         }
@@ -148,15 +157,22 @@ fun SwissSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
             color = tokens.primaryText,
             modifier = Modifier.semantics { heading() }
         )
         if (!trailingText.isNullOrBlank()) {
-            Text(
-                text = trailingText,
-                style = MaterialTheme.typography.labelSmall,
-                color = tokens.mutedText
-            )
+            Surface(
+                color = tokens.surface2,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = trailingText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.secondaryText,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
         }
     }
 }
@@ -173,8 +189,11 @@ fun SwissSurfaceCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = if (useSurface2) tokens.surface2 else tokens.surface1,
-        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
-        border = BorderStroke(SwissGeometry.borderWidth, borderColor ?: tokens.border),
+        shape = RoundedCornerShape(SwissGeometry.radiusCard),
+        border = BorderStroke(
+            width = SwissGeometry.borderWidth,
+            color = borderColor ?: tokens.border.copy(alpha = if (tokens.isDark) 0.55f else 0.75f)
+        ),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -195,18 +214,18 @@ fun SwissStatusIndicator(
 ) {
     val tokens = LocalSwissTokens.current
     val baseModifier = modifier
-        .clip(RoundedCornerShape(SwissGeometry.radiusSmall))
+        .clip(CircleShape)
         .then(
             if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
         )
     Surface(
         modifier = baseModifier.defaultMinSize(minHeight = 32.dp),
-        color = tokens.surface1,
-        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
-        border = BorderStroke(SwissGeometry.borderWidth, tokens.border)
+        color = color.copy(alpha = 0.11f),
+        shape = CircleShape,
+        border = BorderStroke(0.75.dp, color.copy(alpha = 0.28f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -219,6 +238,7 @@ fun SwissStatusIndicator(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
                 color = tokens.primaryText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -233,16 +253,15 @@ fun SwissBadge(
     textColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val tokens = LocalSwissTokens.current
     Surface(
         modifier = modifier,
-        color = tokens.surface2,
-        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
-        border = BorderStroke(SwissGeometry.borderWidth, textColor.copy(alpha = 0.45f))
+        color = textColor.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(8.dp)
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
             color = textColor,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
             maxLines = 1,
@@ -259,25 +278,30 @@ fun SwissSearchField(
     modifier: Modifier = Modifier
 ) {
     val tokens = LocalSwissTokens.current
+    val borderColor by animateColorAsState(
+        targetValue = if (query.isNotEmpty()) tokens.primaryAccent.copy(alpha = 0.55f) else tokens.border.copy(alpha = 0.55f),
+        animationSpec = tween(SwissMotion.fadeDurationMs),
+        label = "search_border"
+    )
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp),
-        color = tokens.surface1,
+        color = tokens.surface2,
         shape = RoundedCornerShape(SwissGeometry.radiusStandard),
-        border = BorderStroke(SwissGeometry.borderWidth, tokens.border)
+        border = BorderStroke(SwissGeometry.borderWidth, borderColor)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Search,
+                imageVector = PhosphorIcons.Regular.MagnifyingGlass,
                 contentDescription = null,
                 tint = tokens.mutedText,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
             Spacer(Modifier.width(10.dp))
             Box(modifier = Modifier.weight(1f)) {
@@ -303,7 +327,7 @@ fun SwissSearchField(
                     modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = PhosphorIcons.Regular.X,
                         contentDescription = "Clear search",
                         tint = tokens.secondaryText,
                         modifier = Modifier.size(16.dp)
@@ -327,7 +351,7 @@ fun SwissSettingRow(
     val tokens = LocalSwissTokens.current
     val rowMod = modifier
         .fillMaxWidth()
-        .defaultMinSize(minHeight = 56.dp)
+        .defaultMinSize(minHeight = 58.dp)
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
         .padding(horizontal = SwissGeometry.cardPadding, vertical = 12.dp)
 
@@ -336,12 +360,20 @@ fun SwissSettingRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tokens.secondaryText,
-            modifier = Modifier.size(20.dp)
-        )
+        Surface(
+            color = tokens.surface2,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.size(36.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tokens.primaryAccent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = title,
@@ -389,7 +421,8 @@ fun SwissPrimaryButton(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interactionSource,
-        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
+        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
+        elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = tokens.primaryAccent,
             contentColor = if (tokens.isDark) tokens.background else Color.White,
@@ -404,7 +437,7 @@ fun SwissPrimaryButton(
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, style = MaterialTheme.typography.labelLarge)
+        Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -422,9 +455,15 @@ fun SwissOutlinedButton(
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
-        border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
+        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
+        border = BorderStroke(
+            width = SwissGeometry.borderWidth,
+            color = tint?.copy(alpha = 0.45f) ?: tokens.border.copy(alpha = 0.75f)
+        ),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = tokens.surface2.copy(alpha = 0.65f),
+            contentColor = contentColor
+        ),
         modifier = modifier.defaultMinSize(minHeight = SwissGeometry.minTouchTarget)
     ) {
         if (icon != null) {
@@ -443,14 +482,29 @@ fun SwissEmptyState(
     modifier: Modifier = Modifier
 ) {
     val tokens = LocalSwissTokens.current
-    SwissSurfaceCard(modifier = modifier) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tokens.mutedText,
-            modifier = Modifier.size(22.dp)
-        )
-        Text(title, style = MaterialTheme.typography.titleMedium, color = tokens.primaryText)
-        Text(description, style = MaterialTheme.typography.bodySmall, color = tokens.secondaryText)
+    SwissSurfaceCard(modifier = modifier, useSurface2 = true) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                color = tokens.primaryAccent.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(44.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = tokens.primaryAccent,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = tokens.primaryText)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = tokens.secondaryText)
+            }
+        }
     }
 }

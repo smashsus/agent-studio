@@ -42,6 +42,7 @@ credentials = "1.5.0"
 googleid = "1.1.1"
 workRuntimeKtx = "2.10.0"
 kotlinxSerializationJson = "1.8.0"
+phosphorIcon = "1.0.0"
 
 
 [libraries]
@@ -98,6 +99,7 @@ androidx-credentials-play-services = { group = "androidx.credentials", name = "c
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntimeKtx" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+phosphor-icon = { group = "com.adamglin", name = "phosphor-icon", version.ref = "phosphorIcon" }
 
 
 [plugins]

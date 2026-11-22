@@ -13,7 +13,7 @@ import com.example.execution.PendingWebBridge
 import com.example.execution.TaskPlanner
 import com.example.memory.MemoryLayer
 import com.example.memory.MemoryManager
-import com.example.model.DeepSeekWebBridgeProvider
+import com.example.model.WebBridgeProvider
 import com.example.model.ModelMessage
 import com.example.model.ModelProvider
 import com.example.model.ModelRequest
@@ -52,7 +52,7 @@ class AgentController(
     private val executionMonitor: ExecutionMonitor,
     private val errorRecoveryManager: ErrorRecoveryManager,
     private val settingsStore: SettingsStore,
-    private val webBridgeProvider: DeepSeekWebBridgeProvider,
+    private val webBridgeProvider: WebBridgeProvider,
     private val apiProvider: OpenAiCompatibleModelProvider
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -165,7 +165,7 @@ class AgentController(
                         executionMonitor.update {
                             it.copy(
                                 phase = AgentPhase.AWAITING_WEB_BRIDGE,
-                                statusDetail = "Waiting for DeepSeek Web Session reply or local tool trigger...",
+                                statusDetail = "Waiting for Web Session reply or local tool trigger...",
                                 pendingWebBridge = PendingWebBridge(
                                     preparedPrompt = response.preparedPrompt,
                                     explanation = response.explanation,
@@ -200,7 +200,8 @@ class AgentController(
                                         MessageEntity(
                                             conversationId = conversationId,
                                             role = "ASSISTANT",
-                                            content = "No automatic local tool matched this prompt. Use the DeepSeek Web tab in Account to send the structured prompt or switch to Priority 2 API fallback for full LLM synthesis."
+                                            toolName = "Web Session",
+                                            content = "No automatic local tool matched this prompt. Open Account & Endpoints to use Embedded Web Session or connect an OpenAI-compatible API endpoint."
                                         )
                                     )
                                     finalCompleted = true
@@ -231,10 +232,16 @@ class AgentController(
                             }
                             append(response.content)
                         }
+                        val modelTag = if (provider is WebBridgeProvider) {
+                            "Web Session"
+                        } else {
+                            settings.modelId.trim().ifBlank { "Model" }
+                        }
                         conversationManager.appendMessage(
                             MessageEntity(
                                 conversationId = conversationId,
                                 role = "ASSISTANT",
+                                toolName = modelTag,
                                 content = content
                             )
                         )
@@ -291,7 +298,7 @@ class AgentController(
                     statusDetail = "Task completed"
                 )
             }
-        } catch (_: CancellationException) {
+        } catch (e: CancellationException) {
             taskPlanner.completePlan(planId, "CANCELLED")
             conversationManager.appendMessage(
                 MessageEntity(
@@ -308,6 +315,27 @@ class AgentController(
                     pendingApproval = null,
                     pendingWebBridge = null,
                     statusDetail = "Cancelled by user"
+                )
+            }
+            throw e
+        } catch (t: Throwable) {
+            taskPlanner.completePlan(planId, "FAILED")
+            val msg = t.message ?: t::class.java.simpleName
+            conversationManager.appendMessage(
+                MessageEntity(
+                    conversationId = conversationId,
+                    role = "SYSTEM",
+                    content = "Unexpected task error: $msg"
+                )
+            )
+            executionMonitor.update {
+                it.copy(
+                    isRunning = false,
+                    phase = AgentPhase.ERROR,
+                    activeToolName = null,
+                    pendingApproval = null,
+                    pendingWebBridge = null,
+                    statusDetail = msg
                 )
             }
         }
@@ -470,10 +498,12 @@ class AgentController(
 
     private suspend fun buildSystemPrompt(settings: AgentSettings): String {
         val memoryBlock = memoryManager.buildSystemMemoryContext(settings.longTermMemoryEnabled)
+        val activeModel = settings.modelId.trim().ifBlank { "autonomous Android agent" }
         return buildString {
-            appendLine("You are an autonomous native Android AI agent harness.")
+            appendLine("You are $activeModel, an autonomous native Android AI assistant.")
             appendLine("Decompose multi-step tasks cleanly, invoke validated tools when needed, verify results, and produce concise, accurate outputs.")
             appendLine("You have local sandboxed Android shell access via the `run_shell` tool (/system/bin/sh inside AgentWorkspace), alongside file, web research, JavaScript, and Android system tools.")
+            appendLine("Android shell tip: SELinux restricts directory listing of /system/bin; use `toybox` to list available utilities or `command -v <name>` to verify binaries.")
             appendLine("Security rule: Never request, read, or emit user credentials, API keys, or Keystore/shared_prefs data.")
             if (memoryBlock.isNotBlank()) {
                 appendLine()

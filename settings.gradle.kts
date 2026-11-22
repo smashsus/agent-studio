@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Agent Harness"
+rootProject.name = "Agent Studio"
 
 include(":app")

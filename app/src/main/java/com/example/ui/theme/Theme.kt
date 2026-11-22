@@ -44,14 +44,15 @@ object SwissGeometry {
     val spacing = 8.dp
     val sectionSpacing = 20.dp
     val cardPadding = 16.dp
-    val radiusSmall = 8.dp
-    val radiusStandard = 12.dp
-    val radiusComposer = 16.dp
+    val radiusSmall = 10.dp
+    val radiusStandard = 14.dp
+    val radiusCard = 16.dp
+    val radiusComposer = 22.dp
     val radiusLarge = 18.dp
-    val radiusDialog = 20.dp
-    val borderWidth = 1.dp
-    val iconSize = 22.dp
-    val bottomNavHeight = 76.dp
+    val radiusDialog = 22.dp
+    val borderWidth = 0.85.dp
+    val iconSize = 21.dp
+    val bottomNavHeight = 74.dp
 }
 
 object SwissOpacity {
@@ -108,7 +109,7 @@ private val LightTokens = SwissTokens(
     isDark = false
 )
 
-val LocalSwissTokens = staticCompositionLocalOf { DarkTokens }
+val LocalSwissTokens = staticCompositionLocalOf { LightTokens }
 
 private val SwissDarkScheme = darkColorScheme(
     primary = DarkPrimaryAccent,
@@ -155,9 +156,11 @@ private val SwissLightScheme = lightColorScheme(
     onSurface = LightPrimaryText,
     surfaceVariant = LightSurface2,
     onSurfaceVariant = LightSecondaryText,
+    surfaceContainerLowest = LightSurface1,
     surfaceContainerLow = LightSurface1,
     surfaceContainer = LightSurface2,
     surfaceContainerHigh = LightSurface3,
+    surfaceContainerHighest = LightSurface3,
     outline = LightBorder,
     outlineVariant = LightBorder,
     error = LightError,
@@ -174,8 +177,8 @@ val SwissShapes = Shapes(
 )
 
 @Composable
-fun DeepSeekAgentTheme(
-    themeMode: ThemeMode = ThemeMode.DARK,
+fun AgentStudioTheme(
+    themeMode: ThemeMode = ThemeMode.LIGHT,
     content: @Composable () -> Unit
 ) {
     val useDark = when (themeMode) {

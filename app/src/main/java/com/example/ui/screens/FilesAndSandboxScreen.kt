@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,23 +16,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Html
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -54,9 +42,21 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.ArrowsClockwise
+import com.adamglin.phosphoricons.regular.DownloadSimple
+import com.adamglin.phosphoricons.regular.Eye
+import com.adamglin.phosphoricons.regular.FileCode
+import com.adamglin.phosphoricons.regular.FileHtml
+import com.adamglin.phosphoricons.regular.FilePdf
+import com.adamglin.phosphoricons.regular.FileText
+import com.adamglin.phosphoricons.regular.FolderOpen
+import com.adamglin.phosphoricons.regular.Play
+import com.adamglin.phosphoricons.regular.ShareNetwork
+import com.adamglin.phosphoricons.regular.Trash
 import com.example.tools.WorkspaceFileInfo
 import com.example.ui.MainViewModel
-import com.example.ui.components.SwissDivider
 import com.example.ui.components.SwissEmptyState
 import com.example.ui.components.SwissOutlinedButton
 import com.example.ui.components.SwissPrimaryButton
@@ -125,7 +125,12 @@ fun FilesAndSandboxScreen(
                     onClick = { viewModel.refreshWorkspaceFiles() },
                     modifier = Modifier.size(SwissGeometry.minTouchTarget)
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Files", tint = tokens.primaryText)
+                    Icon(
+                        PhosphorIcons.Regular.ArrowsClockwise,
+                        contentDescription = "Refresh Files",
+                        tint = tokens.primaryText,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         )
@@ -150,14 +155,30 @@ fun FilesAndSandboxScreen(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    listOf("all" to "All", "reports" to "Reports", "code" to "Code", "notes" to "Notes", "downloads" to "Downloads").forEach { (key, label) ->
+                    listOf(
+                        "all" to "All",
+                        "workspace" to "Workspace",
+                        "reports" to "Reports",
+                        "code" to "Code",
+                        "notes" to "Notes",
+                        "downloads" to "Downloads"
+                    ).forEach { (key, label) ->
+                        val selected = categoryFilter == key
                         FilterChip(
-                            selected = categoryFilter == key,
+                            selected = selected,
                             onClick = { categoryFilter = key },
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                            shape = RoundedCornerShape(10.dp),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = tokens.surface2,
+                                containerColor = tokens.surface2,
+                                selectedContainerColor = tokens.primaryAccent.copy(alpha = 0.14f),
                                 selectedLabelColor = tokens.primaryAccent
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                borderColor = tokens.border.copy(alpha = 0.45f),
+                                selectedBorderColor = tokens.primaryAccent.copy(alpha = 0.5f)
                             )
                         )
                     }
@@ -174,7 +195,7 @@ fun FilesAndSandboxScreen(
             if (filteredFiles.isEmpty()) {
                 item {
                     SwissEmptyState(
-                        icon = Icons.Default.FolderOpen,
+                        icon = PhosphorIcons.Regular.FolderOpen,
                         title = "No matching files",
                         description = "Reports (.md, .pdf), notes, and generated HTML applications appear here."
                     )
@@ -212,19 +233,20 @@ fun FilesAndSandboxScreen(
                         textStyle = MaterialTheme.typography.labelMedium,
                         minLines = 3,
                         maxLines = 6,
+                        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
                         modifier = Modifier.fillMaxWidth().testTag("js_sandbox_input")
                     )
                     SwissPrimaryButton(
                         text = "Run Script",
                         onClick = { viewModel.runJsSnippetInSandbox(jsCode) },
-                        icon = Icons.Default.PlayArrow,
+                        icon = PhosphorIcons.Regular.Play,
                         modifier = Modifier.testTag("run_js_sandbox_button")
                     )
                     jsOutput?.let { out ->
                         Surface(
                             color = tokens.surface2,
                             shape = RoundedCornerShape(SwissGeometry.radiusSmall),
-                            border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+                            border = BorderStroke(0.75.dp, tokens.border.copy(alpha = 0.55f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
@@ -253,20 +275,21 @@ fun FilesAndSandboxScreen(
                         textStyle = MaterialTheme.typography.labelMedium,
                         minLines = 2,
                         maxLines = 5,
+                        shape = RoundedCornerShape(SwissGeometry.radiusSmall),
                         modifier = Modifier.fillMaxWidth().testTag("shell_sandbox_input")
                     )
                     SwissPrimaryButton(
                         text = "Run Shell Command",
                         onClick = { viewModel.runShellInSandbox(shellCommand) },
                         enabled = shellCommand.isNotBlank(),
-                        icon = Icons.Default.PlayArrow,
+                        icon = PhosphorIcons.Regular.Play,
                         modifier = Modifier.testTag("run_shell_sandbox_button")
                     )
                     shellOutput?.let { out ->
                         Surface(
                             color = tokens.surface2,
                             shape = RoundedCornerShape(SwissGeometry.radiusSmall),
-                            border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+                            border = BorderStroke(0.75.dp, tokens.border.copy(alpha = 0.55f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
@@ -321,16 +344,17 @@ private fun CompactWorkspaceFileRow(
 ) {
     val tokens = LocalSwissTokens.current
     val icon = when (file.extension) {
-        "pdf" -> Icons.Default.PictureAsPdf
-        "html", "htm" -> Icons.Default.Html
-        "js", "json", "kt", "py" -> Icons.Default.Code
-        else -> Icons.Default.Description
+        "pdf" -> PhosphorIcons.Regular.FilePdf
+        "html", "htm" -> PhosphorIcons.Regular.FileHtml
+        "js", "json", "kt", "py" -> PhosphorIcons.Regular.FileCode
+        else -> PhosphorIcons.Regular.FileText
     }
 
     Surface(
         color = tokens.surface1,
-        shape = RoundedCornerShape(SwissGeometry.radiusStandard),
-        border = BorderStroke(SwissGeometry.borderWidth, tokens.border),
+        shape = RoundedCornerShape(SwissGeometry.radiusCard),
+        border = BorderStroke(SwissGeometry.borderWidth, tokens.border.copy(alpha = 0.55f)),
+        tonalElevation = 1.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -340,12 +364,20 @@ private fun CompactWorkspaceFileRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tokens.primaryAccent,
-                modifier = Modifier.size(22.dp)
-            )
+            Surface(
+                color = tokens.primaryAccent.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = tokens.primaryAccent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = file.name,
@@ -361,17 +393,17 @@ private fun CompactWorkspaceFileRow(
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPreview, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Visibility, contentDescription = "Preview", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                IconButton(onClick = onPreview, modifier = Modifier.size(38.dp)) {
+                    Icon(PhosphorIcons.Regular.Eye, contentDescription = "Preview", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
                 }
-                IconButton(onClick = onExportSaf, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Download, contentDescription = "Save via SAF", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                IconButton(onClick = onExportSaf, modifier = Modifier.size(38.dp)) {
+                    Icon(PhosphorIcons.Regular.DownloadSimple, contentDescription = "Save via SAF", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
                 }
-                IconButton(onClick = onShare, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                IconButton(onClick = onShare, modifier = Modifier.size(38.dp)) {
+                    Icon(PhosphorIcons.Regular.ShareNetwork, contentDescription = "Share", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
                 }
-                IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = tokens.secondaryText, modifier = Modifier.size(18.dp))
+                IconButton(onClick = onDelete, modifier = Modifier.size(38.dp)) {
+                    Icon(PhosphorIcons.Regular.Trash, contentDescription = "Delete", tint = tokens.secondaryText, modifier = Modifier.size(17.dp))
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.example.app
 import android.app.Application
 import android.content.Context
 import com.example.agent.AgentController
+import com.example.agent.AgentProfileStore
 import com.example.agent.ConversationManager
 import com.example.authentication.AuthManager
 import com.example.authentication.KeystoreVault
@@ -14,6 +15,7 @@ import com.example.memory.MemoryManager
 import com.example.model.OpenAiCompatibleModelProvider
 import com.example.model.WebBridgeProvider
 import com.example.permissions.PermissionManager
+import com.example.settings.ProviderRegistryStore
 import com.example.settings.SettingsStore
 import com.example.tools.AccessibilityTool
 import com.example.tools.AnalyzePdfTool
@@ -44,6 +46,8 @@ class AppContainer(context: Context) {
     val settingsStore = SettingsStore(appContext)
     val keystoreVault = KeystoreVault(appContext)
     val authManager = AuthManager(appContext, keystoreVault)
+    val providerRegistryStore = ProviderRegistryStore(appContext, keystoreVault)
+    val agentProfileStore = AgentProfileStore(appContext)
     val permissionManager = PermissionManager(appContext)
     val memoryManager = MemoryManager(database)
     val conversationManager = ConversationManager(database)
@@ -92,7 +96,8 @@ class AppContainer(context: Context) {
         errorRecoveryManager = errorRecoveryManager,
         settingsStore = settingsStore,
         webBridgeProvider = webBridgeProvider,
-        apiProvider = apiProvider
+        apiProvider = apiProvider,
+        agentProfileStore = agentProfileStore
     )
 }
 

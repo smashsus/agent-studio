@@ -111,4 +111,34 @@ class ExampleUnitTest {
         assertEquals("web_search", parsedTool.calls.first().toolName)
         assertTrue(parsedTool.calls.first().argumentsJson.contains("fasfas api"))
     }
+
+    @Test
+    fun openAiCompatible_parsesModelsListVariants() {
+        val openAiJson = """
+            {
+              "object": "list",
+              "data": [
+                {"id": "glm-5.3-flash", "object": "model"},
+                {"id": "mai-image-2.6", "object": "model"},
+                {"id": "glm-5.3-flash", "object": "model"}
+              ]
+            }
+        """.trimIndent()
+        assertEquals(
+            listOf("glm-5.3-flash", "mai-image-2.6"),
+            com.example.model.OpenAiCompatibleModelProvider.parseModelsListBody(openAiJson)
+        )
+
+        val arrayJson = """["gpt-4o-mini", "o4-mini"]"""
+        assertEquals(
+            listOf("gpt-4o-mini", "o4-mini"),
+            com.example.model.OpenAiCompatibleModelProvider.parseModelsListBody(arrayJson)
+        )
+
+        val modelsObjJson = """{"models": [{"name": "custom-coder"}]}"""
+        assertEquals(
+            listOf("custom-coder"),
+            com.example.model.OpenAiCompatibleModelProvider.parseModelsListBody(modelsObjJson)
+        )
+    }
 }

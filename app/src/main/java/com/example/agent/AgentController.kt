@@ -53,7 +53,8 @@ class AgentController(
     private val errorRecoveryManager: ErrorRecoveryManager,
     private val settingsStore: SettingsStore,
     private val webBridgeProvider: WebBridgeProvider,
-    private val apiProvider: OpenAiCompatibleModelProvider
+    private val apiProvider: OpenAiCompatibleModelProvider,
+    private val agentProfileStore: AgentProfileStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var activeJob: Job? = null
@@ -78,7 +79,21 @@ class AgentController(
         attachmentUri: String?,
         attachmentName: String?
     ) {
-        val settings = settingsStore.settings.first()
+        val baseSettings = settingsStore.settings.first()
+        val activeAgent = agentProfileStore.getActiveAgent()
+        val allToolNames = toolRegistry.allDefinitions().map { it.name }
+        val agentDisabledTools = when {
+            activeAgent.disableAllTools -> allToolNames.toSet()
+            activeAgent.allowedTools.isNotEmpty() -> {
+                val allowed = activeAgent.allowedTools.toSet()
+                baseSettings.disabledTools + allToolNames.filterNot { it in allowed }
+            }
+            else -> baseSettings.disabledTools
+        }
+        val settings = baseSettings.copy(
+            modelId = activeAgent.preferredModelId.ifBlank { baseSettings.modelId },
+            disabledTools = agentDisabledTools
+        )
         val trimmedPrompt = userPrompt.trim()
         if (trimmedPrompt.isEmpty() && attachmentUri == null) return
 
@@ -108,7 +123,7 @@ class AgentController(
                 activeToolName = null,
                 currentStep = 0,
                 maxSteps = settings.maxSteps,
-                statusDetail = "Decomposing request & loading 3-layer memory...",
+                statusDetail = "Running ${activeAgent.handle} · Loading memory...",
                 pendingApproval = null,
                 pendingWebBridge = null
             )
@@ -123,7 +138,7 @@ class AgentController(
         var finalCompleted = false
 
         try {
-            val systemPrompt = buildSystemPrompt(settings)
+            val systemPrompt = buildSystemPrompt(settings, activeAgent)
             val modelMessages = buildInitialModelMessages(conversationId, promptWithAttachment)
 
             for (step in 1..settings.maxSteps) {
@@ -496,14 +511,18 @@ class AgentController(
         }
     }
 
-    private suspend fun buildSystemPrompt(settings: AgentSettings): String {
+    private suspend fun buildSystemPrompt(settings: AgentSettings, agent: AgentProfile): String {
         val memoryBlock = memoryManager.buildSystemMemoryContext(settings.longTermMemoryEnabled)
         val activeModel = settings.modelId.trim().ifBlank { "autonomous Android agent" }
         return buildString {
-            appendLine("You are $activeModel, an autonomous native Android AI assistant.")
-            appendLine("Decompose multi-step tasks cleanly, invoke validated tools when needed, verify results, and produce concise, accurate outputs.")
-            appendLine("You have local sandboxed Android shell access via the `run_shell` tool (/system/bin/sh inside AgentWorkspace), alongside file, web research, JavaScript, and Android system tools.")
-            appendLine("Android shell tip: SELinux restricts directory listing of /system/bin; use `toybox` to list available utilities or `command -v <name>` to verify binaries.")
+            appendLine("You are ${agent.name} (${agent.handle}) powered by $activeModel inside Agent Studio.")
+            if (agent.systemPrompt.isNotBlank()) {
+                appendLine(agent.systemPrompt)
+            }
+            if (!agent.disableAllTools) {
+                appendLine("You have local sandboxed Android shell access via the `run_shell` tool (/system/bin/sh inside AgentWorkspace), alongside file, web research, JavaScript, and Android system tools.")
+                appendLine("Android shell tip: SELinux restricts directory listing of /system/bin; use `toybox` to list available utilities or `command -v <name>` to verify binaries.")
+            }
             appendLine("Security rule: Never request, read, or emit user credentials, API keys, or Keystore/shared_prefs data.")
             if (memoryBlock.isNotBlank()) {
                 appendLine()

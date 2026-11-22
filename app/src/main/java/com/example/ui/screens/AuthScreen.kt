@@ -2,16 +2,21 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -31,8 +36,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -41,20 +49,29 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ArrowsClockwise
 import com.adamglin.phosphoricons.regular.Browser
+import com.adamglin.phosphoricons.regular.Cpu
 import com.adamglin.phosphoricons.regular.GearSix
 import com.adamglin.phosphoricons.regular.Key
 import com.adamglin.phosphoricons.regular.LockSimple
+import com.adamglin.phosphoricons.regular.PencilSimple
+import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.SignOut
+import com.adamglin.phosphoricons.regular.Trash
 import com.example.authentication.AuthState
 import com.example.authentication.ProviderMode
+import com.example.settings.ProviderRegistryStore
+import com.example.settings.SavedProviderProfile
 import com.example.ui.MainViewModel
 import com.example.ui.components.EmbeddedWebSessionView
+import com.example.ui.components.ModelSelectorSheet
+import com.example.ui.components.ProviderEditorDialog
 import com.example.ui.components.SwissBadge
 import com.example.ui.components.SwissOutlinedButton
 import com.example.ui.components.SwissPrimaryButton
 import com.example.ui.components.SwissSectionHeader
 import com.example.ui.components.SwissSurfaceCard
 import com.example.ui.components.SwissTopBar
+import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
 import java.text.SimpleDateFormat
@@ -73,6 +90,9 @@ fun AuthScreen(
     val preferredMode by viewModel.preferredMode.collectAsStateWithLifecycle()
     val executionState by viewModel.executionState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val savedProviders by viewModel.savedProviders.collectAsStateWithLifecycle()
+    val activeProviderId by viewModel.activeProviderId.collectAsStateWithLifecycle()
+    val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
 
     var showWebBrowserModal by rememberSaveable { mutableStateOf(false) }
     var webPortalUrl by rememberSaveable { mutableStateOf(viewModel.getSavedWebPortalUrl()) }
@@ -80,6 +100,10 @@ fun AuthScreen(
     var baseUrlInput by rememberSaveable { mutableStateOf(viewModel.getSavedApiBaseUrl()) }
     var modelIdInput by rememberSaveable { mutableStateOf(settings.modelId) }
     var hasLocalEdits by rememberSaveable { mutableStateOf(false) }
+
+    var editingProvider by androidx.compose.runtime.remember { mutableStateOf<SavedProviderProfile?>(null) }
+    var showAddProviderDialog by androidx.compose.runtime.remember { mutableStateOf(false) }
+    var showModelSheet by androidx.compose.runtime.remember { mutableStateOf(false) }
 
     LaunchedEffect(settings.customBaseUrl, settings.modelId) {
         if (!hasLocalEdits) {
@@ -92,12 +116,24 @@ fun AuthScreen(
         modifier = modifier
             .fillMaxSize()
             .background(tokens.background)
+            .imePadding()
     ) {
         SwissTopBar(
-            title = "Account & Endpoints",
-            subtitle = "Provider-neutral connection hub",
+            title = "Providers & Endpoints",
+            subtitle = "Connect APIs, model lists & web sessions",
             onBack = onBack,
             actions = {
+                IconButton(
+                    onClick = { showAddProviderDialog = true },
+                    modifier = Modifier.size(SwissGeometry.minTouchTarget).testTag("add_provider_button")
+                ) {
+                    Icon(
+                        PhosphorIcons.Regular.Plus,
+                        contentDescription = "Add Provider",
+                        tint = tokens.primaryAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 IconButton(
                     onClick = onOpenSettings,
                     modifier = Modifier.size(SwissGeometry.minTouchTarget)
@@ -125,7 +161,7 @@ fun AuthScreen(
                         AuthState.NotAuthenticated -> Triple(
                             "Not Connected",
                             tokens.warning,
-                            "Configure any OpenAI-compatible HTTPS endpoint and Model ID below, or open an embedded web session."
+                            "Add a provider below or open an embedded web session."
                         )
                         is AuthState.Authenticating -> Triple(
                             "Connecting",
@@ -170,36 +206,78 @@ fun AuthScreen(
                     Text(detailText, style = MaterialTheme.typography.bodySmall, color = tokens.secondaryText)
                     if (preferredMode != ProviderMode.WEB_SESSION && (settings.customBaseUrl.isNotBlank() || settings.modelId.isNotBlank())) {
                         Text(
-                            text = "Active endpoint: ${settings.customBaseUrl.ifBlank { "Not set" }} · Model: ${settings.modelId.ifBlank { "Not set" }}",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = "Active: ${settings.customBaseUrl.ifBlank { "Not set" }} · ${settings.modelId.ifBlank { "Not set" }}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
                             color = tokens.primaryAccent
                         )
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SwissOutlinedButton(
-                            text = "Expire / Reauth",
+                            text = "Models List",
+                            onClick = { showModelSheet = true },
+                            icon = PhosphorIcons.Regular.Cpu,
+                            modifier = Modifier.weight(1f).testTag("open_models_sheet_button")
+                        )
+                        SwissOutlinedButton(
+                            text = "Reauth",
                             onClick = { viewModel.expireWebSessionForTestOrReauth() },
                             icon = PhosphorIcons.Regular.ArrowsClockwise,
                             modifier = Modifier.weight(1f).testTag("expire_session_button")
                         )
-                        SwissOutlinedButton(
-                            text = "Logout",
-                            onClick = {
-                                showWebBrowserModal = false
-                                viewModel.logoutAll()
-                            },
-                            icon = PhosphorIcons.Regular.SignOut,
-                            tint = tokens.error,
-                            modifier = Modifier.weight(1f).testTag("logout_all_button")
-                        )
                     }
+
+                    SwissOutlinedButton(
+                        text = "Logout & Clear Keys",
+                        onClick = {
+                            showWebBrowserModal = false
+                            viewModel.logoutAll()
+                        },
+                        icon = PhosphorIcons.Regular.SignOut,
+                        tint = tokens.error,
+                        modifier = Modifier.fillMaxWidth().testTag("logout_all_button")
+                    )
                 }
             }
 
-            // Any Compatible API Base URL + Model ID + Key Configuration
+            // Saved Providers (OpenCode-style multi-provider list with Edit-After-Save & Model IDs)
+            if (savedProviders.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SwissSectionHeader(
+                            title = "Saved Providers",
+                            trailingText = "${savedProviders.size} saved",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                items(savedProviders, key = { it.id }) { profile ->
+                    val isActive = profile.id == activeProviderId && preferredMode != ProviderMode.WEB_SESSION
+                    SavedProviderCard(
+                        profile = profile,
+                        isActive = isActive,
+                        hasKey = viewModel.hasKeyForProvider(profile.id),
+                        onActivate = { viewModel.activateSavedProvider(profile.id) },
+                        onOpenModels = {
+                            viewModel.activateSavedProvider(profile.id)
+                            showModelSheet = true
+                        },
+                        onEdit = { editingProvider = profile },
+                        onDelete = { viewModel.deleteSavedProvider(profile.id) }
+                    )
+                }
+            }
+
+            // Quick Add / Connect Any Compatible API Base URL + Model ID + Key
             item {
-                SwissSectionHeader(title = "Compatible API Endpoint", trailingText = "Any HTTPS Base URL")
+                SwissSectionHeader(
+                    title = if (savedProviders.isEmpty()) "Compatible API Endpoint" else "Quick Connect / Add Endpoint",
+                    trailingText = "Any HTTPS Base URL"
+                )
                 SwissSurfaceCard(
                     borderColor = if (preferredMode != ProviderMode.WEB_SESSION) tokens.primaryAccent.copy(alpha = 0.7f) else null
                 ) {
@@ -215,42 +293,28 @@ fun AuthScreen(
                                 color = tokens.primaryText
                             )
                             Text(
-                                text = "Connect any OpenAI-compatible HTTPS endpoint and Model ID. Credentials are encrypted via Android Keystore.",
+                                text = "Connect any OpenAI-compatible endpoint. Fetches /models IDs automatically and supports editing after save.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = tokens.secondaryText
                             )
                         }
                     }
 
-                    // Provider-neutral quick-fill base URL presets
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(
-                            Triple("Fasfas AI", "https://api.fasfas.ai/v1", "glm-5.3-flash"),
-                            Triple("Fasfas RP", "https://api.fasfas.ai/rp/v1", "glm-5.3-flash"),
-                            Triple("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini"),
-                            Triple("OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini"),
-                            Triple("Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
-                            Triple("Custom", baseUrlInput, modelIdInput)
-                        ).forEach { (label, presetUrl, presetModel) ->
+                        ProviderRegistryStore.builtInPresets.forEach { preset ->
                             FilterChip(
-                                selected = label != "Custom" &&
-                                    presetUrl.isNotBlank() &&
-                                    baseUrlInput.trimEnd('/') == presetUrl.trimEnd('/'),
+                                selected = baseUrlInput.trimEnd('/') == preset.baseUrl.trimEnd('/'),
                                 onClick = {
                                     hasLocalEdits = true
-                                    if (label == "Custom") {
-                                        if (baseUrlInput.isBlank()) baseUrlInput = ""
-                                    } else {
-                                        baseUrlInput = presetUrl
-                                        modelIdInput = presetModel
-                                    }
+                                    baseUrlInput = preset.baseUrl
+                                    modelIdInput = preset.defaultModelId
                                 },
-                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                label = { Text(preset.name, style = MaterialTheme.typography.labelSmall) },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = FilterChipDefaults.filterChipColors(
                                     containerColor = tokens.surface2,
@@ -259,9 +323,7 @@ fun AuthScreen(
                                 ),
                                 border = FilterChipDefaults.filterChipBorder(
                                     enabled = true,
-                                    selected = label != "Custom" &&
-                                        presetUrl.isNotBlank() &&
-                                        baseUrlInput.trimEnd('/') == presetUrl.trimEnd('/'),
+                                    selected = baseUrlInput.trimEnd('/') == preset.baseUrl.trimEnd('/'),
                                     borderColor = tokens.border.copy(alpha = 0.45f),
                                     selectedBorderColor = tokens.primaryAccent.copy(alpha = 0.5f)
                                 )
@@ -317,7 +379,7 @@ fun AuthScreen(
 
                     val hasStoredKey = viewModel.hasApiFallback()
                     val buttonText = if (apiKeyInput.isBlank() && hasStoredKey) {
-                        "Update Endpoint & Model"
+                        "Update & Fetch Models"
                     } else {
                         "Save & Connect Endpoint"
                     }
@@ -345,7 +407,7 @@ fun AuthScreen(
                 }
             }
 
-            // Embedded Web Session Card (Full-Screen Dialog for clean rendering)
+            // Embedded Web Session Card
             item {
                 SwissSectionHeader(title = "Embedded Web Session", trailingText = "Any HTTPS Portal")
                 SwissSurfaceCard(
@@ -398,6 +460,48 @@ fun AuthScreen(
         }
     }
 
+    if (showAddProviderDialog || editingProvider != null) {
+        val target = editingProvider
+        ProviderEditorDialog(
+            initial = target,
+            hasExistingKey = target?.let { viewModel.hasKeyForProvider(it.id) } ?: false,
+            onDismiss = {
+                showAddProviderDialog = false
+                editingProvider = null
+            },
+            onSave = { existingId, name, url, key, modelId, modelIds, verify ->
+                viewModel.saveProviderProfile(
+                    existingId = existingId,
+                    name = name,
+                    baseUrl = url,
+                    apiKey = key,
+                    selectedModelId = modelId,
+                    customModelIds = modelIds,
+                    verifyConnection = verify,
+                    setActive = true
+                )
+                hasLocalEdits = false
+                showAddProviderDialog = false
+                editingProvider = null
+            }
+        )
+    }
+
+    if (showModelSheet) {
+        ModelSelectorSheet(
+            providers = savedProviders,
+            activeProviderId = activeProviderId,
+            activeModelId = settings.modelId,
+            isFetchingModels = isFetchingModels,
+            onDismiss = { showModelSheet = false },
+            onActivateProvider = { id -> viewModel.activateSavedProvider(id) },
+            onFetchModels = { id -> viewModel.fetchModelsForProvider(id) },
+            onSelectModel = { provId, mId -> viewModel.selectModelIdForProvider(provId, mId) },
+            onRemoveModel = { provId, mId -> viewModel.removeModelIdFromProvider(provId, mId) },
+            onOpenEndpoints = { showModelSheet = false }
+        )
+    }
+
     if (showWebBrowserModal) {
         val validUrl = webPortalUrl.trim().takeIf { it.startsWith("https://") }
         if (validUrl != null) {
@@ -425,6 +529,112 @@ fun AuthScreen(
                         onClose = { showWebBrowserModal = false },
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedProviderCard(
+    profile: SavedProviderProfile,
+    isActive: Boolean,
+    hasKey: Boolean,
+    onActivate: () -> Unit,
+    onOpenModels: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val tokens = LocalSwissTokens.current
+    Surface(
+        color = if (isActive) tokens.primaryAccent.copy(alpha = 0.06f) else tokens.surface1,
+        shape = RoundedCornerShape(SwissGeometry.radiusCard),
+        border = BorderStroke(
+            SwissGeometry.borderWidth,
+            if (isActive) tokens.primaryAccent.copy(alpha = 0.65f) else tokens.border.copy(alpha = 0.75f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(SwissGeometry.radiusCard))
+            .clickable(onClick = onActivate)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = profile.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = tokens.primaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = profile.baseUrl,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                        color = tokens.secondaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (isActive) {
+                        SwissBadge(text = "Active", textColor = tokens.success)
+                    }
+                    SwissBadge(
+                        text = if (hasKey) "Key Saved" else "No Key",
+                        textColor = if (hasKey) tokens.primaryAccent else tokens.warning
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = tokens.surface2,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenModels)
+                ) {
+                    Text(
+                        text = "${profile.selectedModelId.ifBlank { "Pick model" }} · ${profile.modelIds.size} IDs",
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                        color = tokens.primaryText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(38.dp)) {
+                        Icon(
+                            imageVector = PhosphorIcons.Regular.PencilSimple,
+                            contentDescription = "Edit Provider",
+                            tint = tokens.primaryAccent,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(38.dp)) {
+                        Icon(
+                            imageVector = PhosphorIcons.Regular.Trash,
+                            contentDescription = "Delete Provider",
+                            tint = tokens.error,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                 }
             }
         }

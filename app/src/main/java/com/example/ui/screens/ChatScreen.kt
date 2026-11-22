@@ -77,16 +77,19 @@ import com.adamglin.phosphoricons.regular.Plus
 import com.example.authentication.ProviderMode
 import com.example.database.ConversationSummary
 import com.example.ui.MainViewModel
+import com.example.ui.components.AgentManagerSheet
 import com.example.ui.components.ApprovalCheckpointPanel
 import com.example.ui.components.AssistantEditorialMessage
 import com.example.ui.components.ChatHistorySheet
 import com.example.ui.components.GeminiChatInputArea
 import com.example.ui.components.LiveExecutionProgressCard
+import com.example.ui.components.ModelSelectorSheet
 import com.example.ui.components.SwissDivider
 import com.example.ui.components.SystemNoticeRow
 import com.example.ui.components.ToolExecutionRow
 import com.example.ui.components.UserMessageBubble
 import com.example.ui.components.WebBridgePanel
+import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.theme.LocalSwissTokens
 import com.example.ui.theme.SwissGeometry
 import com.example.ui.theme.SwissMotion
@@ -108,9 +111,16 @@ fun ChatScreen(
     val preferredMode by viewModel.preferredMode.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val pendingAttachment by viewModel.pendingAttachment.collectAsStateWithLifecycle()
+    val savedProviders by viewModel.savedProviders.collectAsStateWithLifecycle()
+    val activeProviderId by viewModel.activeProviderId.collectAsStateWithLifecycle()
+    val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
+    val agentProfiles by viewModel.agentProfiles.collectAsStateWithLifecycle()
+    val activeAgentId by viewModel.activeAgentId.collectAsStateWithLifecycle()
 
     var inputText by rememberSaveable(initialDraft) { mutableStateOf(initialDraft) }
     var showHistorySheet by remember { mutableStateOf(false) }
+    var showAgentSheet by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -168,10 +178,15 @@ fun ChatScreen(
         summaries.firstOrNull { it.id == activeId }
     }
 
+    val activeAgent = remember(agentProfiles, activeAgentId) {
+        agentProfiles.firstOrNull { it.id == activeAgentId } ?: agentProfiles.firstOrNull()
+    }
+    val effectiveModelId = activeAgent?.preferredModelId?.takeIf { it.isNotBlank() } ?: settings.modelId
+
     val runtimeLabel = if (preferredMode == ProviderMode.WEB_SESSION) {
         "Web Session"
     } else {
-        settings.modelId.ifBlank { "No Model Set" }
+        effectiveModelId.ifBlank { "Pick Model" }
     }
 
     Column(
@@ -183,10 +198,13 @@ fun ChatScreen(
         // Minimal, Distraction-Free Chat Top Bar
         ChatTopBar(
             activeSummary = activeSummary,
+            agentHandle = activeAgent?.handle ?: "@build",
             runtimeLabel = runtimeLabel,
-            modelMissing = preferredMode != ProviderMode.WEB_SESSION && settings.modelId.isBlank(),
+            modelMissing = preferredMode != ProviderMode.WEB_SESSION && effectiveModelId.isBlank(),
             onBack = onBack,
             onOpenHistory = { showHistorySheet = true },
+            onOpenAgents = { showAgentSheet = true },
+            onOpenModels = { showModelSheet = true },
             onNewThread = { viewModel.createNewConversation() }
         )
 
@@ -337,7 +355,7 @@ fun ChatScreen(
             placeholder = if (preferredMode == ProviderMode.WEB_SESSION) {
                 "Ask Web Session..."
             } else {
-                "Ask ${settings.modelId.ifBlank { "Agent" }}..."
+                "Ask ${effectiveModelId.ifBlank { activeAgent?.name ?: "Agent" }}..."
             },
             isRunning = executionState.isRunning,
             pendingAttachment = pendingAttachment,
@@ -385,15 +403,59 @@ fun ChatScreen(
             onDeleteConversation = { id -> viewModel.deleteConversation(id) }
         )
     }
+
+    if (showAgentSheet) {
+        AgentManagerSheet(
+            agents = agentProfiles,
+            activeAgentId = activeAgentId,
+            allTools = viewModel.toolDefinitions,
+            onDismiss = { showAgentSheet = false },
+            onSelectAgent = { id -> viewModel.selectAgent(id) },
+            onInstallCatalogAgent = { id -> viewModel.installCatalogAgent(id, activate = true) },
+            onSaveAgent = { existingId, name, handle, desc, prompt, modelId, tools, disableAll ->
+                viewModel.saveOrUpdateAgent(
+                    existingId = existingId,
+                    name = name,
+                    handle = handle,
+                    description = desc,
+                    systemPrompt = prompt,
+                    preferredModelId = modelId,
+                    allowedTools = tools,
+                    disableAllTools = disableAll,
+                    activate = true
+                )
+            },
+            onInstallFromSpec = { raw -> viewModel.installAgentFromSpec(raw) },
+            onUninstallAgent = { id -> viewModel.uninstallAgent(id) }
+        )
+    }
+
+    if (showModelSheet) {
+        ModelSelectorSheet(
+            providers = savedProviders,
+            activeProviderId = activeProviderId,
+            activeModelId = effectiveModelId,
+            isFetchingModels = isFetchingModels,
+            onDismiss = { showModelSheet = false },
+            onActivateProvider = { id -> viewModel.activateSavedProvider(id) },
+            onFetchModels = { id -> viewModel.fetchModelsForProvider(id) },
+            onSelectModel = { provId, mId -> viewModel.selectModelIdForProvider(provId, mId) },
+            onRemoveModel = { provId, mId -> viewModel.removeModelIdFromProvider(provId, mId) },
+            onOpenEndpoints = onNavigateToAuth
+        )
+    }
 }
 
 @Composable
 private fun ChatTopBar(
     activeSummary: ConversationSummary?,
+    agentHandle: String,
     runtimeLabel: String,
     modelMissing: Boolean,
     onBack: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenAgents: () -> Unit,
+    onOpenModels: () -> Unit,
     onNewThread: () -> Unit
 ) {
     val tokens = LocalSwissTokens.current
@@ -439,14 +501,16 @@ private fun ChatTopBar(
                 Column(
                     modifier = Modifier
                         .weight(1f, fill = false)
-                        .clip(RoundedCornerShape(SwissGeometry.radiusSmall))
-                        .clickable(onClick = onOpenHistory)
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
-                        .testTag("chat_thread_title_button")
+                        .padding(horizontal = 4.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(onClick = onOpenHistory)
+                            .padding(vertical = 2.dp)
+                            .testTag("chat_thread_title_button")
                     ) {
                         Text(
                             text = activeSummary?.title ?: "New Chat",
@@ -472,13 +536,49 @@ private fun ChatTopBar(
                             modifier = Modifier.size(14.dp)
                         )
                     }
-                    Text(
-                        text = runtimeLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (modelMissing) tokens.warning else tokens.primaryAccent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+
+                    // OpenCode-style interactive Agent (@handle) · Model ID selector strip
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        Surface(
+                            color = tokens.secondaryAccent.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(onClick = onOpenAgents)
+                                .testTag("chat_agent_picker_button")
+                        ) {
+                            Text(
+                                text = agentHandle,
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                                fontWeight = FontWeight.SemiBold,
+                                color = tokens.secondaryAccent,
+                                maxLines = 1,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Surface(
+                            color = if (modelMissing) tokens.warning.copy(alpha = 0.14f) else tokens.primaryAccent.copy(alpha = 0.11f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(onClick = onOpenModels)
+                                .testTag("chat_model_picker_button")
+                        ) {
+                            Text(
+                                text = runtimeLabel,
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
+                                color = if (modelMissing) tokens.warning else tokens.primaryAccent,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
             }
 

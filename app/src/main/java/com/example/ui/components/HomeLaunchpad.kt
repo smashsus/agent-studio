@@ -69,6 +69,7 @@ fun HomeWelcomeSection(
     authState: AuthState,
     preferredMode: ProviderMode,
     modelId: String,
+    activeAgentHandle: String,
     autonomyLevel: AutonomyLevel,
     toolCount: Int,
     recentSummaries: List<ConversationSummary>,
@@ -77,6 +78,8 @@ fun HomeWelcomeSection(
     onSelectQuickMission: (String) -> Unit,
     onSelectConversation: (Long) -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenAgents: () -> Unit,
+    onOpenModels: () -> Unit,
     onOpenEndpoints: () -> Unit,
     onOpenFiles: () -> Unit,
     onOpenActivity: () -> Unit
@@ -145,10 +148,24 @@ fun HomeWelcomeSection(
                     } else {
                         modelId.ifBlank { "Set Model ID" }
                     }
-                    SwissBadge(
-                        text = heroModelBadge,
-                        textColor = if (preferredMode != ProviderMode.WEB_SESSION && modelId.isBlank()) tokens.warning else tokens.primaryAccent
-                    )
+                    Surface(
+                        color = (if (preferredMode != ProviderMode.WEB_SESSION && modelId.isBlank()) tokens.warning else tokens.primaryAccent).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenModels)
+                            .testTag("home_hero_model_badge")
+                    ) {
+                        Text(
+                            text = heroModelBadge,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (preferredMode != ProviderMode.WEB_SESSION && modelId.isBlank()) tokens.warning else tokens.primaryAccent,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -177,6 +194,22 @@ fun HomeWelcomeSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Surface(
+                        color = tokens.secondaryAccent.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenAgents)
+                            .testTag("home_agent_badge")
+                    ) {
+                        Text(
+                            text = activeAgentHandle,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = tokens.secondaryAccent,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                     SwissBadge(
                         text = "$toolCount Tools Ready",
                         textColor = tokens.secondaryText
@@ -208,14 +241,20 @@ fun HomeWelcomeSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     QuickNavTile(
+                        icon = PhosphorIcons.Regular.Cpu,
+                        label = "Agents",
+                        onClick = onOpenAgents,
+                        modifier = Modifier.weight(1f).testTag("home_quick_agents")
+                    )
+                    QuickNavTile(
                         icon = PhosphorIcons.Regular.PlugsConnected,
-                        label = "Endpoints",
+                        label = "Providers",
                         onClick = onOpenEndpoints,
                         modifier = Modifier.weight(1f).testTag("home_quick_endpoints")
                     )
                     QuickNavTile(
                         icon = PhosphorIcons.Regular.FolderOpen,
-                        label = "Shell & Files",
+                        label = "Files",
                         onClick = onOpenFiles,
                         modifier = Modifier.weight(1f).testTag("home_quick_files")
                     )

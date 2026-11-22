@@ -10,6 +10,7 @@ import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.agent.AgentProfile
 import com.example.app.AgentStudioApp
 import com.example.authentication.AuthState
 import com.example.authentication.ProviderMode
@@ -24,8 +25,10 @@ import com.example.execution.AgentPhase
 import com.example.execution.BackgroundAgentWorker
 import com.example.execution.ExecutionUiState
 import com.example.memory.MemoryLayer
+import com.example.model.OpenAiCompatibleModelProvider
 import com.example.settings.AgentSettings
 import com.example.settings.AutonomyLevel
+import com.example.settings.SavedProviderProfile
 import com.example.tools.ToolDefinition
 import com.example.tools.ToolResult
 import com.example.tools.WorkspaceFileInfo
@@ -135,10 +138,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _openChatEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val openChatEvents: SharedFlow<Unit> = _openChatEvents.asSharedFlow()
 
+    val savedProviders: StateFlow<List<SavedProviderProfile>> = container.providerRegistryStore.providers
+    val activeProviderId: StateFlow<String?> = container.providerRegistryStore.activeProviderId
+    private val _isFetchingModels = MutableStateFlow(false)
+    val isFetchingModels: StateFlow<Boolean> = _isFetchingModels.asStateFlow()
+
+    val agentProfiles: StateFlow<List<AgentProfile>> = container.agentProfileStore.agents
+    val activeAgentId: StateFlow<String> = container.agentProfileStore.activeAgentId
+
     val toolDefinitions: List<ToolDefinition> = container.toolRegistry.allDefinitions()
 
     init {
         viewModelScope.launch {
+            val s = container.settingsStore.settings.first()
+            container.providerRegistryStore.ensureMigratedFromLegacy(
+                legacyBaseUrl = container.authManager.getSavedApiBaseUrl().ifBlank { s.customBaseUrl },
+                legacyModelId = s.modelId,
+                legacyKey = container.authManager.getApiKeyForModelTransport()
+            )
             val existing = container.conversationManager.conversations.first()
             if (existing.isEmpty()) {
                 _activeConversationId.value = container.conversationManager.ensureDefaultConversation()
@@ -334,25 +351,261 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveApiFallback(apiKey: String, baseUrl: String, modelId: String, isCustom: Boolean) {
+        saveProviderProfile(
+            existingId = container.providerRegistryStore.activeProviderId.value,
+            name = "",
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            selectedModelId = modelId,
+            customModelIds = emptyList(),
+            verifyConnection = true,
+            setActive = true
+        )
+    }
+
+    fun saveProviderProfile(
+        existingId: String?,
+        name: String,
+        baseUrl: String,
+        apiKey: String,
+        selectedModelId: String,
+        customModelIds: List<String>,
+        verifyConnection: Boolean = true,
+        setActive: Boolean = true
+    ) {
         viewModelScope.launch {
-            val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
-            val cleanModel = modelId.trim().ifEmpty { settings.value.modelId.trim() }
-            if (cleanModel.isEmpty()) {
-                _snackbarMessage.value = "Please enter a Model ID."
+            val cleanBase = OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+            val cleanModel = selectedModelId.trim().ifEmpty { settings.value.modelId.trim() }
+            if (!cleanBase.startsWith("https://")) {
+                _snackbarMessage.value = "Only HTTPS Base URLs are permitted."
                 return@launch
             }
-            val res = container.authManager.saveAndVerifyApiFallback(apiKey, cleanBase, isCustom)
-            if (res.isSuccess) {
-                val savedBase = res.getOrDefault(cleanBase)
-                container.settingsStore.setModelConfig(
-                    modelId = cleanModel,
-                    customBaseUrl = savedBase
-                )
-                _snackbarMessage.value = "Connected to $savedBase ($cleanModel)."
+            if (cleanModel.isEmpty() && customModelIds.isEmpty()) {
+                _snackbarMessage.value = "Please enter at least one Model ID."
+                return@launch
+            }
+
+            val existingKey = existingId?.let { container.providerRegistryStore.getProviderKey(it) }
+                ?: container.authManager.getApiKeyForModelTransport()
+            val effectiveKey = apiKey.trim().ifBlank { existingKey.orEmpty() }
+
+            if (effectiveKey.isBlank()) {
+                _snackbarMessage.value = "API key cannot be empty."
+                return@launch
+            }
+
+            if (verifyConnection) {
+                val res = container.authManager.verifyAndFetchModels(effectiveKey, cleanBase)
+                if (res.isSuccess) {
+                    val (savedBase, discovered) = res.getOrThrow()
+                    val mergedModels = (customModelIds + discovered).distinct()
+                    val resolvedModel = cleanModel.ifBlank { mergedModels.firstOrNull().orEmpty() }
+                    val saved = container.providerRegistryStore.saveOrUpdateProvider(
+                        existingId = existingId,
+                        name = name,
+                        baseUrl = savedBase,
+                        apiKey = effectiveKey,
+                        selectedModelId = resolvedModel,
+                        modelIds = mergedModels,
+                        verifiedNow = true,
+                        setActive = setActive
+                    )
+                    if (setActive) {
+                        container.settingsStore.setModelConfig(
+                            modelId = saved.selectedModelId,
+                            customBaseUrl = saved.baseUrl
+                        )
+                    }
+                    val countNote = if (discovered.isNotEmpty()) " · ${discovered.size} models discovered" else ""
+                    _snackbarMessage.value = "Saved & connected ${saved.name} (${saved.selectedModelId})$countNote."
+                } else {
+                    _snackbarMessage.value = res.exceptionOrNull()?.message ?: "Authentication failed."
+                }
             } else {
-                _snackbarMessage.value = res.exceptionOrNull()?.message ?: "Authentication failed."
+                val saved = container.providerRegistryStore.saveOrUpdateProvider(
+                    existingId = existingId,
+                    name = name,
+                    baseUrl = cleanBase,
+                    apiKey = effectiveKey,
+                    selectedModelId = cleanModel,
+                    modelIds = customModelIds,
+                    verifiedNow = false,
+                    setActive = setActive
+                )
+                if (setActive) {
+                    container.authManager.activateProviderCredential(effectiveKey, saved.baseUrl)
+                    container.settingsStore.setModelConfig(
+                        modelId = saved.selectedModelId,
+                        customBaseUrl = saved.baseUrl
+                    )
+                }
+                _snackbarMessage.value = "Updated ${saved.name}."
             }
         }
+    }
+
+    fun activateSavedProvider(providerId: String) {
+        viewModelScope.launch {
+            val profile = container.providerRegistryStore.setActiveProvider(providerId) ?: return@launch
+            val key = container.providerRegistryStore.getProviderKey(providerId)
+            container.authManager.activateProviderCredential(key, profile.baseUrl)
+            container.settingsStore.setModelConfig(
+                modelId = profile.selectedModelId.ifBlank { settings.value.modelId },
+                customBaseUrl = profile.baseUrl
+            )
+            _snackbarMessage.value = "Switched to ${profile.name} (${profile.selectedModelId})."
+        }
+    }
+
+    fun deleteSavedProvider(providerId: String) {
+        viewModelScope.launch {
+            val wasActive = container.providerRegistryStore.activeProviderId.value == providerId
+            val nextActive = container.providerRegistryStore.deleteProvider(providerId)
+            if (wasActive && nextActive != null) {
+                val key = container.providerRegistryStore.getProviderKey(nextActive.id)
+                container.authManager.activateProviderCredential(key, nextActive.baseUrl)
+                container.settingsStore.setModelConfig(
+                    modelId = nextActive.selectedModelId,
+                    customBaseUrl = nextActive.baseUrl
+                )
+            } else if (nextActive == null) {
+                container.authManager.logoutAll()
+            }
+            _snackbarMessage.value = "Removed provider."
+        }
+    }
+
+    fun fetchModelsForProvider(providerId: String? = container.providerRegistryStore.activeProviderId.value) {
+        viewModelScope.launch {
+            if (_isFetchingModels.value) return@launch
+            val profile = providerId?.let { id -> savedProviders.value.firstOrNull { it.id == id } }
+            val baseUrl = profile?.baseUrl ?: settings.value.customBaseUrl.ifBlank { getSavedApiBaseUrl() }
+            val apiKey = profile?.id?.let { container.providerRegistryStore.getProviderKey(it) }
+                ?: container.authManager.getApiKeyForModelTransport().orEmpty()
+
+            if (baseUrl.isBlank() || apiKey.isBlank()) {
+                _snackbarMessage.value = "Configure an HTTPS Base URL and API Key first."
+                return@launch
+            }
+            _isFetchingModels.value = true
+            val res = OpenAiCompatibleModelProvider.fetchAvailableModels(
+                baseUrl = baseUrl,
+                apiKey = apiKey,
+                timeoutSeconds = settings.value.timeoutSeconds.toLong()
+            )
+            _isFetchingModels.value = false
+            res.onSuccess { models ->
+                if (models.isEmpty()) {
+                    _snackbarMessage.value = "Endpoint returned an empty /models list; you can add custom Model IDs manually."
+                } else {
+                    if (profile != null) {
+                        container.providerRegistryStore.updateProviderModels(profile.id, models)
+                    }
+                    _snackbarMessage.value = "Loaded ${models.size} model IDs."
+                }
+            }.onFailure { err ->
+                _snackbarMessage.value = "Could not fetch /models: ${err.message}"
+            }
+        }
+    }
+
+    fun selectModelIdForProvider(providerId: String?, modelId: String, alsoClearAgentOverride: Boolean = true) {
+        viewModelScope.launch {
+            val clean = modelId.trim()
+            if (clean.isEmpty()) return@launch
+            val targetId = providerId ?: container.providerRegistryStore.activeProviderId.value
+            val updated = targetId?.let {
+                container.providerRegistryStore.addCustomModelId(it, clean, selectImmediately = true)
+            }
+            val isActive = updated == null || updated.id == container.providerRegistryStore.activeProviderId.value
+            if (isActive) {
+                val baseUrl = updated?.baseUrl ?: settings.value.customBaseUrl.ifBlank { getSavedApiBaseUrl() }
+                container.settingsStore.setModelConfig(clean, baseUrl)
+            }
+            if (alsoClearAgentOverride) {
+                val currentAgent = container.agentProfileStore.getActiveAgent()
+                if (currentAgent.preferredModelId.isNotBlank()) {
+                    container.agentProfileStore.saveOrUpdateAgent(
+                        existingId = currentAgent.id,
+                        name = currentAgent.name,
+                        handle = currentAgent.handle,
+                        description = currentAgent.description,
+                        systemPrompt = currentAgent.systemPrompt,
+                        preferredModelId = "",
+                        allowedTools = currentAgent.allowedTools,
+                        disableAllTools = currentAgent.disableAllTools,
+                        activate = true
+                    )
+                }
+            }
+            _snackbarMessage.value = "Active model set to $clean."
+        }
+    }
+
+    fun removeModelIdFromProvider(providerId: String, modelId: String) {
+        viewModelScope.launch {
+            val updated = container.providerRegistryStore.removeModelId(providerId, modelId)
+            if (updated != null && updated.id == container.providerRegistryStore.activeProviderId.value && updated.selectedModelId.isNotBlank()) {
+                container.settingsStore.setModelConfig(updated.selectedModelId, updated.baseUrl)
+            }
+        }
+    }
+
+    fun hasKeyForProvider(providerId: String): Boolean = container.providerRegistryStore.hasProviderKey(providerId)
+
+    // --- OpenCode-Style Agents ---
+    fun selectAgent(agentId: String) {
+        val selected = container.agentProfileStore.selectAgent(agentId) ?: return
+        _snackbarMessage.value = "Active agent: ${selected.name} (${selected.handle})"
+    }
+
+    fun installCatalogAgent(agentId: String, activate: Boolean = true) {
+        val installed = container.agentProfileStore.installCatalogAgent(agentId, activate) ?: return
+        _snackbarMessage.value = "Installed ${installed.name} (${installed.handle})."
+    }
+
+    fun saveOrUpdateAgent(
+        existingId: String?,
+        name: String,
+        handle: String,
+        description: String,
+        systemPrompt: String,
+        preferredModelId: String,
+        allowedTools: List<String>,
+        disableAllTools: Boolean,
+        activate: Boolean = true
+    ) {
+        val saved = container.agentProfileStore.saveOrUpdateAgent(
+            existingId = existingId,
+            name = name,
+            handle = handle,
+            description = description,
+            systemPrompt = systemPrompt,
+            preferredModelId = preferredModelId,
+            allowedTools = allowedTools,
+            disableAllTools = disableAllTools,
+            activate = activate
+        )
+        _snackbarMessage.value = "Saved agent ${saved.name} (${saved.handle})."
+    }
+
+    fun installAgentFromSpec(rawSpec: String): Boolean {
+        val res = container.agentProfileStore.installFromSpecText(rawSpec)
+        return res.fold(
+            onSuccess = { profile ->
+                _snackbarMessage.value = "Installed agent ${profile.name} (${profile.handle})."
+                true
+            },
+            onFailure = { err ->
+                _snackbarMessage.value = "Agent import failed: ${err.message}"
+                false
+            }
+        )
+    }
+
+    fun uninstallAgent(agentId: String) {
+        container.agentProfileStore.uninstallOrDeleteAgent(agentId)
+        _snackbarMessage.value = "Removed agent."
     }
 
     fun getSavedApiBaseUrl(): String = container.authManager.getSavedApiBaseUrl()
@@ -361,6 +614,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logoutAll() {
         container.authManager.logoutAll()
+        container.providerRegistryStore.clearAll()
         _snackbarMessage.value = "Logged out and cleared WebView cookies & Keystore credentials."
     }
 

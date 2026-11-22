@@ -15,12 +15,15 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Call
+import okhttp3.ConnectionSpec
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLException
 
 /**
  * OpenAI-compatible Chat Completions ModelProvider
@@ -77,12 +80,6 @@ class OpenAiCompatibleModelProvider(
                 put("temperature", 0.3)
             }
 
-            val client = OkHttpClient.Builder()
-                .connectTimeout(request.settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                .readTimeout(request.settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                .writeTimeout(request.settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                .build()
-
             val httpRequest = Request.Builder()
                 .url("$baseUrl/chat/completions")
                 .header("Authorization", "Bearer $apiKey")
@@ -92,11 +89,9 @@ class OpenAiCompatibleModelProvider(
                 .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val call = client.newCall(httpRequest)
-            activeCall.set(call)
-
+            val timeoutSec = request.settings.timeoutSeconds.toLong().coerceIn(10L, 120L)
             try {
-                call.execute().use { response ->
+                executeRequestWithTlsFallback(httpRequest, timeoutSec, activeCall).use { response ->
                     val bodyStr = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
                         val retryable = response.code == 429 || response.code >= 500
@@ -108,13 +103,13 @@ class OpenAiCompatibleModelProvider(
                     parseResponseBody(bodyStr)
                 }
             } catch (e: Exception) {
-                val cancelled = call.isCanceled()
+                val cancelled = activeCall.get()?.isCanceled() == true
                 ModelResponse.ErrorResponse(
                     message = if (cancelled) "Request cancelled." else "Network error: ${e.message ?: "Unknown"}",
                     retryable = !cancelled
                 )
             } finally {
-                activeCall.compareAndSet(call, null)
+                activeCall.set(null)
             }
         }
 
@@ -166,6 +161,94 @@ class OpenAiCompatibleModelProvider(
     companion object {
         const val USER_AGENT = "AgentStudio-Android/1.0"
         private val json = Json { ignoreUnknownKeys = true }
+
+        internal fun executeRequestWithTlsFallback(
+            request: Request,
+            timeoutSeconds: Long,
+            activeCall: AtomicReference<Call?>? = null
+        ): okhttp3.Response {
+            val primaryClient = OkHttpClient.Builder()
+                .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                .writeTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                .retryOnConnectionFailure(true)
+                .build()
+
+            val primaryCall = primaryClient.newCall(request)
+            activeCall?.set(primaryCall)
+            return try {
+                primaryCall.execute()
+            } catch (ssl: SSLException) {
+                if (primaryCall.isCanceled()) throw ssl
+                val http1Client = OkHttpClient.Builder()
+                    .protocols(listOf(Protocol.HTTP_1_1))
+                    .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS))
+                    .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                    .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                    .writeTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                    .retryOnConnectionFailure(true)
+                    .build()
+                val retryCall = http1Client.newCall(request)
+                activeCall?.set(retryCall)
+                retryCall.execute()
+            }
+        }
+
+        suspend fun fetchAvailableModels(
+            baseUrl: String,
+            apiKey: String,
+            timeoutSeconds: Long = 20L
+        ): Result<List<String>> = withContext(Dispatchers.IO) {
+            val cleanBase = normalizeBaseUrl(baseUrl)
+            if (!cleanBase.startsWith("https://")) {
+                return@withContext Result.failure(IllegalArgumentException("HTTPS base URL is required."))
+            }
+            val cleanKey = apiKey.trim()
+            if (cleanKey.isEmpty()) {
+                return@withContext Result.failure(IllegalArgumentException("API key is required to fetch /models."))
+            }
+            val req = Request.Builder()
+                .url("$cleanBase/models")
+                .header("Authorization", "Bearer $cleanKey")
+                .header("Accept", "application/json")
+                .header("User-Agent", USER_AGENT)
+                .get()
+                .build()
+
+            runCatching {
+                executeRequestWithTlsFallback(req, timeoutSeconds).use { resp ->
+                    val bodyStr = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) {
+                        throw IllegalStateException("HTTP ${resp.code}: ${extractErrorMessage(bodyStr)}")
+                    }
+                    parseModelsListBody(bodyStr)
+                }
+            }
+        }
+
+        internal fun parseModelsListBody(body: String): List<String> {
+            val trimmed = body.trim()
+            if (trimmed.isEmpty()) return emptyList()
+            return runCatching {
+                val elem = json.parseToJsonElement(trimmed)
+                val items: JsonArray? = when (elem) {
+                    is JsonArray -> elem
+                    is JsonObject -> (elem["data"] as? JsonArray)
+                        ?: (elem["models"] as? JsonArray)
+                        ?: (elem["items"] as? JsonArray)
+                    else -> null
+                }
+                items?.mapNotNull { entry ->
+                    when (entry) {
+                        is JsonPrimitive -> entry.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+                        is JsonObject -> (entry["id"] as? JsonPrimitive)?.contentOrNull?.trim()
+                            ?: (entry["name"] as? JsonPrimitive)?.contentOrNull?.trim()
+                            ?: (entry["model"] as? JsonPrimitive)?.contentOrNull?.trim()
+                        else -> null
+                    }
+                }?.filter { it.isNotBlank() }?.distinct() ?: emptyList()
+            }.getOrDefault(emptyList())
+        }
 
         fun normalizeBaseUrl(rawUrl: String): String {
             var url = rawUrl.trim().trimEnd('/')

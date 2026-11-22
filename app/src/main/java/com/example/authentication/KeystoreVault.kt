@@ -10,11 +10,19 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+interface SecretVault {
+    fun putSecret(key: String, plainText: String)
+    fun getSecret(key: String): String?
+    fun hasSecret(key: String): Boolean
+    fun removeSecret(key: String)
+    fun clearAll()
+}
+
 /**
  * Hardware-backed Android Keystore AES-GCM vault for optional credentials and session metadata.
  * Credentials stored here are never logged, never passed to prompts, and never exposed to tools.
  */
-class KeystoreVault(context: Context) {
+class KeystoreVault(context: Context) : SecretVault {
     private val prefs = context.getSharedPreferences("deepseek_keystore_vault", Context.MODE_PRIVATE)
 
     private fun getOrCreateSecretKey(): SecretKey {
@@ -35,7 +43,7 @@ class KeystoreVault(context: Context) {
         return keyGenerator.generateKey()
     }
 
-    fun putSecret(key: String, plainText: String) {
+    override fun putSecret(key: String, plainText: String) {
         if (plainText.isBlank()) {
             removeSecret(key)
             return
@@ -49,7 +57,7 @@ class KeystoreVault(context: Context) {
         prefs.edit().putString(key, payload).apply()
     }
 
-    fun getSecret(key: String): String? {
+    override fun getSecret(key: String): String? {
         val payload = prefs.getString(key, null) ?: return null
         val parts = payload.split(":")
         if (parts.size != 2) return null
@@ -62,13 +70,13 @@ class KeystoreVault(context: Context) {
         }.getOrNull()
     }
 
-    fun hasSecret(key: String): Boolean = !getSecret(key).isNullOrBlank()
+    override fun hasSecret(key: String): Boolean = !getSecret(key).isNullOrBlank()
 
-    fun removeSecret(key: String) {
+    override fun removeSecret(key: String) {
         prefs.edit().remove(key).apply()
     }
 
-    fun clearAll() {
+    override fun clearAll() {
         prefs.edit().clear().apply()
     }
 

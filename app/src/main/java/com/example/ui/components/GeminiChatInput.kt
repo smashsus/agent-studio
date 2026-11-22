@@ -95,12 +95,12 @@ fun GeminiChatInputArea(
         .fillMaxWidth()
         .background(tokens.background)
         .then(if (applyNavigationBarsPadding) Modifier.navigationBarsPadding() else Modifier)
-        .padding(horizontal = SwissGeometry.screenPadding, vertical = 10.dp)
+        .padding(horizontal = SwissGeometry.screenPadding, vertical = 8.dp)
 
     Column(modifier = containerModifier) {
         Surface(
             color = containerColor,
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(24.dp),
             border = BorderStroke(SwissGeometry.borderWidth, borderColor),
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
@@ -109,8 +109,8 @@ fun GeminiChatInputArea(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 AnimatedVisibility(
                     visible = pendingAttachment != null,

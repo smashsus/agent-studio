@@ -57,9 +57,11 @@ import com.example.database.ConversationSummary
 import com.example.execution.AgentPhase
 import com.example.execution.ExecutionUiState
 import com.example.ui.MainViewModel
+import com.example.ui.components.AgentManagerSheet
 import com.example.ui.components.ChatHistorySheet
 import com.example.ui.components.GeminiChatInputArea
 import com.example.ui.components.HomeWelcomeSection
+import com.example.ui.components.ModelSelectorSheet
 import com.example.ui.components.SwissBadge
 import com.example.ui.components.SwissDivider
 import com.example.ui.components.SwissStatusIndicator
@@ -84,9 +86,21 @@ fun WorkspaceScreen(
     val preferredMode by viewModel.preferredMode.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val pendingAttachment by viewModel.pendingAttachment.collectAsStateWithLifecycle()
+    val savedProviders by viewModel.savedProviders.collectAsStateWithLifecycle()
+    val activeProviderId by viewModel.activeProviderId.collectAsStateWithLifecycle()
+    val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
+    val agentProfiles by viewModel.agentProfiles.collectAsStateWithLifecycle()
+    val activeAgentId by viewModel.activeAgentId.collectAsStateWithLifecycle()
 
     var inputText by rememberSaveable { mutableStateOf("") }
     var showHistorySheet by remember { mutableStateOf(false) }
+    var showAgentSheet by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
+
+    val activeAgent = remember(agentProfiles, activeAgentId) {
+        agentProfiles.firstOrNull { it.id == activeAgentId } ?: agentProfiles.firstOrNull()
+    }
+    val effectiveModelId = activeAgent?.preferredModelId?.takeIf { it.isNotBlank() } ?: settings.modelId
 
     val attachLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -139,7 +153,7 @@ fun WorkspaceScreen(
             threadCount = summaries.size,
             authState = authState,
             preferredMode = preferredMode,
-            modelId = settings.modelId,
+            modelId = effectiveModelId,
             executionState = executionState,
             onOpenHistory = { showHistorySheet = true },
             onNewConversation = {
@@ -166,7 +180,8 @@ fun WorkspaceScreen(
                 HomeWelcomeSection(
                     authState = authState,
                     preferredMode = preferredMode,
-                    modelId = settings.modelId,
+                    modelId = effectiveModelId,
+                    activeAgentHandle = activeAgent?.handle ?: "@build",
                     autonomyLevel = settings.autonomyLevel,
                     toolCount = viewModel.toolDefinitions.size,
                     recentSummaries = summaries,
@@ -178,6 +193,8 @@ fun WorkspaceScreen(
                         onOpenChat("")
                     },
                     onOpenHistory = { showHistorySheet = true },
+                    onOpenAgents = { showAgentSheet = true },
+                    onOpenModels = { showModelSheet = true },
                     onOpenEndpoints = onNavigateToAuth,
                     onOpenFiles = onNavigateToFiles,
                     onOpenActivity = onNavigateToActivity
@@ -192,7 +209,7 @@ fun WorkspaceScreen(
             placeholder = if (preferredMode == ProviderMode.WEB_SESSION) {
                 "Start a Web Session prompt..."
             } else {
-                "Ask ${settings.modelId.ifBlank { "Agent" }} to start chatting..."
+                "Ask ${effectiveModelId.ifBlank { activeAgent?.name ?: "Agent" }} to start chatting..."
             },
             isRunning = executionState.isRunning,
             pendingAttachment = pendingAttachment,
@@ -245,6 +262,47 @@ fun WorkspaceScreen(
             onClearConversation = { id -> viewModel.clearConversationMessages(id) },
             onExportConversation = { id -> viewModel.exportConversationMarkdown(id) },
             onDeleteConversation = { id -> viewModel.deleteConversation(id) }
+        )
+    }
+
+    if (showAgentSheet) {
+        AgentManagerSheet(
+            agents = agentProfiles,
+            activeAgentId = activeAgentId,
+            allTools = viewModel.toolDefinitions,
+            onDismiss = { showAgentSheet = false },
+            onSelectAgent = { id -> viewModel.selectAgent(id) },
+            onInstallCatalogAgent = { id -> viewModel.installCatalogAgent(id, activate = true) },
+            onSaveAgent = { existingId, name, handle, desc, prompt, modelId, tools, disableAll ->
+                viewModel.saveOrUpdateAgent(
+                    existingId = existingId,
+                    name = name,
+                    handle = handle,
+                    description = desc,
+                    systemPrompt = prompt,
+                    preferredModelId = modelId,
+                    allowedTools = tools,
+                    disableAllTools = disableAll,
+                    activate = true
+                )
+            },
+            onInstallFromSpec = { raw -> viewModel.installAgentFromSpec(raw) },
+            onUninstallAgent = { id -> viewModel.uninstallAgent(id) }
+        )
+    }
+
+    if (showModelSheet) {
+        ModelSelectorSheet(
+            providers = savedProviders,
+            activeProviderId = activeProviderId,
+            activeModelId = effectiveModelId,
+            isFetchingModels = isFetchingModels,
+            onDismiss = { showModelSheet = false },
+            onActivateProvider = { id -> viewModel.activateSavedProvider(id) },
+            onFetchModels = { id -> viewModel.fetchModelsForProvider(id) },
+            onSelectModel = { provId, mId -> viewModel.selectModelIdForProvider(provId, mId) },
+            onRemoveModel = { provId, mId -> viewModel.removeModelIdFromProvider(provId, mId) },
+            onOpenEndpoints = onNavigateToAuth
         )
     }
 }

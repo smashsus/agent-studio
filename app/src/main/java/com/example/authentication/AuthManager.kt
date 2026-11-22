@@ -8,10 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URI
-import java.util.concurrent.TimeUnit
 
 /**
  * Manages provider-neutral authentication and endpoint configuration:
@@ -157,7 +155,14 @@ class AuthManager(
         apiKey: String,
         baseUrl: String,
         @Suppress("UNUSED_PARAMETER") isCustomCompatible: Boolean = true
-    ): Result<String> = withContext(Dispatchers.IO) {
+    ): Result<String> {
+        return verifyAndFetchModels(apiKey, baseUrl).map { it.first }
+    }
+
+    suspend fun verifyAndFetchModels(
+        apiKey: String,
+        baseUrl: String
+    ): Result<Pair<String, List<String>>> = withContext(Dispatchers.IO) {
         val mode = ProviderMode.COMPATIBLE_API
         val effectiveKey = apiKey.trim().ifBlank { vault.getSecret(VAULT_API_KEY).orEmpty() }
         val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
@@ -173,12 +178,7 @@ class AuthManager(
             return@withContext Result.failure(IllegalArgumentException("HTTPS required"))
         }
 
-        _authState.value = AuthState.Authenticating(mode, "Verifying endpoint credentials...")
-        val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .build()
-
+        _authState.value = AuthState.Authenticating(mode, "Verifying endpoint & fetching models...")
         val request = Request.Builder()
             .url("$cleanBase/models")
             .header("Authorization", "Bearer $effectiveKey")
@@ -188,12 +188,17 @@ class AuthManager(
             .build()
 
         val displayHost = extractHost(cleanBase) ?: cleanBase
-        val responseResult = runCatching { client.newCall(request).execute() }
+        val responseResult = runCatching {
+            com.example.model.OpenAiCompatibleModelProvider.executeRequestWithTlsFallback(request, 15L)
+        }
         responseResult.fold(
             onSuccess = { resp ->
                 resp.use {
                     val bodySnippet = runCatching { it.body?.string().orEmpty() }.getOrDefault("")
                     if (it.isSuccessful || it.code == 404 || it.code == 405) {
+                        val discoveredModels = if (it.isSuccessful) {
+                            com.example.model.OpenAiCompatibleModelProvider.parseModelsListBody(bodySnippet)
+                        } else emptyList()
                         vault.putSecret(VAULT_API_KEY, effectiveKey)
                         val now = System.currentTimeMillis()
                         prefs.edit()
@@ -209,7 +214,7 @@ class AuthManager(
                             expiresAt = null,
                             grantsProgrammaticApi = true
                         )
-                        Result.success(cleanBase)
+                        Result.success(cleanBase to discoveredModels)
                     } else if (it.code == 401 || it.code == 403) {
                         val detail = com.example.model.OpenAiCompatibleModelProvider.extractErrorMessage(bodySnippet)
                         _authState.value = AuthState.AuthenticationFailed(
@@ -233,7 +238,7 @@ class AuthManager(
                             expiresAt = null,
                             grantsProgrammaticApi = true
                         )
-                        Result.success(cleanBase)
+                        Result.success(cleanBase to emptyList())
                     }
                 }
             },
@@ -245,6 +250,24 @@ class AuthManager(
                 Result.failure(err)
             }
         )
+    }
+
+    fun activateProviderCredential(apiKey: String?, baseUrl: String) {
+        val cleanBase = com.example.model.OpenAiCompatibleModelProvider.normalizeBaseUrl(baseUrl)
+        val cleanKey = apiKey?.trim().orEmpty()
+        if (cleanKey.isNotEmpty()) {
+            vault.putSecret(VAULT_API_KEY, cleanKey)
+        }
+        if (cleanBase.startsWith("https://")) {
+            val now = System.currentTimeMillis()
+            prefs.edit()
+                .putString(KEY_API_BASE, cleanBase)
+                .putLong(KEY_API_CONNECTED_AT, now)
+                .putString(KEY_PREFERRED_MODE, ProviderMode.COMPATIBLE_API.name)
+                .apply()
+            _preferredMode.value = ProviderMode.COMPATIBLE_API
+            refreshSessionState()
+        }
     }
 
     fun syncApiBaseUrlIfConfigured(baseUrl: String) {
